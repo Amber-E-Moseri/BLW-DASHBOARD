@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BLW Canada Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #0a0c10;
+      --surface: #12151c;
+      --surface2: #1a1f2b;
+      --border: rgba(255,255,255,0.08);
+      --accent: #6c63ff;
+      --green: #26de81;
+      --red: #fc5c65;
+      --muted: #7b8495;
+      --text: #e8eaf0;
+      --text-dim: #a7b0bf;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 32px 40px 22px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 20px;
+      flex-wrap: wrap;
+      background: linear-gradient(180deg, rgba(108,99,255,0.08) 0%, transparent 100%);
+    }
+
+    .logo-area h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: -0.4px;
+    }
+
+    .logo-area p {
+      color: var(--text-dim);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .search-wrap {
+      position: relative;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    input[type="text"],
+    select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      border-radius: 10px;
+      outline: none;
+    }
+
+    input[type="text"] {
+      width: 240px;
+      padding: 9px 12px 9px 34px;
+    }
+
+    select {
+      padding: 9px 11px;
+      cursor: pointer;
+    }
+
+    input[type="text"]::placeholder {
+      color: var(--muted);
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      border-color: var(--accent);
+    }
+
+    .summary-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 16px 40px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .stat-pill {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stat-pill strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .top-tabs,
+    .group-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 0 40px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .top-tabs::-webkit-scrollbar,
+    .group-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab-btn {
+      border: none;
+      background: none;
+      color: var(--text-dim);
+      padding: 11px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .grid-wrap {
+      padding: 28px 40px 40px;
+    }
+
+    .group-label {
+      font-family: 'DM Serif Display', serif;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent);
+      margin: 26px 0 12px;
+      opacity: 0.9;
+    }
+
+    .group-label:first-child {
+      margin-top: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(285px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 18px 14px;
+      overflow: hidden;
+      transition: transform 0.18s ease, border-color 0.18s ease;
+      cursor: pointer;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 2px;
+      opacity: 0;
+      background: var(--accent);
+      transition: opacity 0.18s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(108,99,255,0.35);
+    }
+
+    .card:hover::before {
+      opacity: 1;
+    }
+
+    .card.trending-up::before {
+      opacity: 1;
+      background: var(--green);
+    }
+
+    .card.trending-down::before {
+      opacity: 1;
+      background: var(--red);
+    }
+
+    .card.no-data::before {
+      opacity: 0.4;
+      background: var(--muted);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .card-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .card-sub {
+      margin-top: 3px;
+      color: var(--text-dim);
+      font-size: 11.5px;
+      line-height: 1.35;
+    }
+
+    .trend-badge {
+      flex-shrink: 0;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+
+    .trend-badge.up {
+      background: rgba(38,222,129,0.12);
+      color: var(--green);
+    }
+
+    .trend-badge.down {
+      background: rgba(252,92,101,0.12);
+      color: var(--red);
+    }
+
+    .trend-badge.flat {
+      background: rgba(123,132,149,0.18);
+      color: var(--muted);
+    }
+
+    .reporting-ring {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      flex-shrink: 0;
+    }
+
+    .reporting-ring svg {
+      width: 34px;
+      height: 34px;
+      transform: rotate(-90deg);
+      display: block;
+    }
+
+    .ring-pct {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .sparkline-wrap {
+      height: 46px;
+      margin: 8px 0;
+    }
+
+    canvas.spark {
+      width: 100%;
+      height: 46px;
+      display: block;
+    }
+
+    .no-data-msg {
+      height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-style: italic;
+    }
+
+    .card-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .mini-stat {
+      text-align: center;
+    }
+
+    .mini-stat .val {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .mini-stat .lbl {
+      margin-top: 3px;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--muted);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 70px 20px;
+      color: var(--muted);
+    }
+
+    .empty-state p {
+      margin-top: 8px;
+      font-size: 15px;
+    }
+
+    .empty-state .sub {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(4px);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 26px;
+      width: 100%;
+      max-width: 680px;
+      position: relative;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+    }
+
+    .modal h2 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 22px;
+      line-height: 1.2;
+      margin-bottom: 4px;
+      padding-right: 80px;
+    }
+
+    .modal-sub {
+      color: var(--text-dim);
+      font-size: 13px;
+      margin-bottom: 18px;
+    }
+
+    .modal-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .modal-stat {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .modal-stat .val {
+      font-size: 19px;
+      font-weight: 700;
+    }
+
+    .modal-stat .lbl {
+      margin-top: 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--muted);
+    }
+
+    .modal-chart-wrap {
+      height: 170px;
+      margin-bottom: 16px;
+    }
+
+    canvas#modal-chart {
+      width: 100%;
+      height: 170px;
+      display: block;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .table-block {
+      margin-top: 16px;
+    }
+
+    .table-block h3 {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+
+    .table-block table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .table-block th,
+    .table-block td {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      text-align: left;
+    }
+
+    .table-block th {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .pos {
+      color: var(--green);
+    }
+
+    .neg {
+      color: var(--red);
+    }
+
+    @media (max-width: 768px) {
+      header,
+      .summary-bar,
+      .top-tabs,
+      .group-tabs,
+      .grid-wrap {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .controls {
+        width: 100%;
+      }
+
+      input[type="text"] {
+        width: 100%;
+      }
+
+      .modal-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo-area">
+      <h1>BLW Canada Dashboard</h1>
+      <p id="subtitle">Live data from Google Sheets</p>
+    </div>
+
+    <div class="controls">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" id="search" placeholder="Search cells, services, leaders…" />
+      </div>
+
+      <select id="sort-select">
+        <option value="growth" selected>Sort: Highest Growth</option>
+        <option value="name">Sort: Name</option>
+        <option value="attendance">Sort: Avg Attendance</option>
+        <option value="size">Sort: Size</option>
+        <option value="reporting">Sort: Reporting %</option>
+      </select>
+
+      <select id="trend-filter">
+        <option value="all">All Trends</option>
+        <option value="up">Trending Up</option>
+        <option value="down">Trending Down</option>
+        <option value="flat">Flat / No Data</option>
+        <option value="missing">Missing Reports</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="summary-bar" id="summary-bar"></div>
+
+  <div class="top-tabs" id="dataset-tabs">
+    <button class="tab-btn active" data-dataset="cells">Cells</button>
+    <button class="tab-btn" data-dataset="services">Services</button>
+  </div>
+
+  <div class="group-tabs" id="group-tabs"></div>
+
+  <div class="grid-wrap" id="grid-wrap">
+    <div class="empty-state">
+      <p>Loading dashboard data…</p>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModalBtn()">✕ Close</button>
+      <h2 id="modal-title"></h2>
+      <p class="modal-sub" id="modal-sub"></p>
+      <div class="modal-stats" id="modal-stats"></div>
+      <div class="modal-chart-wrap">
+        <canvas id="modal-chart"></canvas>
+      </div>
+      <div id="modal-tables"></div>
+    </div>
+  </div>
+
+  <script>
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycby_U5Sbuzm5xGXwPEFBZEBkkzKItTmzbbahAB13fteYRHeTAojizrIQ8MNleXO4j27bjg/exec";
+
+    const GROUP_ORDER = [
+      "Central East SGA",
+      "Central East SGB",
+      "Central SGA",
+      "Central SGB",
+      "West SGA",
+      "West SGB"
+    ];
+
+    const MONTH_ORDER = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    let rawPayload = { cells: [], services: [] };
+    let currentDataset = "cells";
+    let activeGroup = "all";
+    let modalItem = null;
+
+    function safeArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function num(value) {
+      if (value === null || value === undefined || value === "") return 0;
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function currentItems() {
+      return safeArray(rawPayload[currentDataset]);
+    }
+
+    function datasetLabel() {
+      return currentDataset === "cells" ? "Cells" : "Services";
+    }
+
+    function subtitleText() {
+      return currentDataset === "cells"
+        ? "Cell Reporting pulled from Google Sheets"
+        : "Service Reporting pulled from Google Sheets";
+    }
+
+    function monthKey_(weekLabel) {
+      return String(weekLabel || "").split(" ")[0];
+    }
+
+    function buildMonthlyReport_(weekly) {
+      const monthMap = {};
+
+      safeArray(weekly).forEach(w => {
+        const month = monthKey_(w.week);
+        if (!month) return;
+
+        if (!monthMap[month]) {
+          monthMap[month] = {
+            month,
+            total: 0,
+            count: 0,
+            missing: 0,
+            change: null,
+            status: "flat"
+          };
+        }
+
+        if (w.missing) {
+          monthMap[month].missing++;
+          return;
+        }
+
+        if (w.attendance !== null && w.attendance !== undefined) {
+          monthMap[month].total += num(w.attendance);
+          monthMap[month].count++;
+        }
+      });
+
+      const months = Object.values(monthMap).sort((a, b) => {
+        return MONTH_ORDER.indexOf(a.month) - MONTH_ORDER.indexOf(b.month);
+      });
+
+      months.forEach((m, i) => {
+        const prev = i > 0 ? months[i - 1].total : null;
+
+        if (prev !== null && prev !== 0) {
+          m.change = ((m.total - prev) / prev) * 100;
+          if (m.change > 0.01) m.status = "up";
+          else if (m.change < -0.01) m.status = "down";
+          else m.status = "flat";
+        }
+      });
+
+      return months;
+    }
+
+    function calcGrowth(weekly) {
+      const pts = safeArray(weekly).filter(w => !w.missing && num(w.attendance) > 0);
+      if (pts.length < 2) return null;
+
+      const n = pts.length;
+      const xMean = (n - 1) / 2;
+      const yMean = pts.reduce((sum, w) => sum + num(w.attendance), 0) / n;
+
+      let numerator = 0;
+      let denominator = 0;
+
+      pts.forEach((w, i) => {
+        const y = num(w.attendance);
+        numerator += (i - xMean) * (y - yMean);
+        denominator += (i - xMean) ** 2;
+      });
+
+      const first = num(pts[0].attendance);
+      const last = num(pts[pts.length - 1].attendance);
+
+      return {
+        slope: denominator ? numerator / denominator : 0,
+        wowTotal: first ? ((last - first) / first) * 100 : null
+      };
+    }
+
+    function normalizeItems(items) {
+      return safeArray(items)
+        .filter(item => item && item.group !== "Total" && item.name !== "Total")
+        .map(item => {
+          const weekly = safeArray(item.weekly).map(w => ({
+            week: w?.week || "",
+            attendance: w?.attendance === null ? null : num(w?.attendance),
+            missing: !!w?.missing
+          }));
+
+          const monthly = buildMonthlyReport_(weekly);
+
+          return {
+            name: item.name || "",
+            leader: item.leader || "",
+            membership: num(item.membership),
+            avg_attendance: num(item.avg_attendance),
+            reporting_pct: num(item.reporting_pct),
+            sc_code: item.sc_code || "",
+            group: item.group || "",
+            cells_represented: num(item.cells_represented),
+            missing_reports: num(item.missing_reports),
+            weekly,
+            monthly,
+            growth: calcGrowth(weekly)
+          };
+        });
+    }
+
+    function trendOf(item) {
+      if (item.missing_reports > 0) return "down";
+      if (!item.growth || safeArray(item.weekly).length < 2) return "flat";
+      if (item.growth.slope > 0.05) return "up";
+      if (item.growth.slope < -0.05) return "down";
+      return "flat";
+    }
+
+    function buildRing(pct) {
+      const value = Math.max(0, Math.min(100, num(pct)));
+      const r = 12;
+      const cx = 16;
+      const cy = 16;
+      const circumference = 2 * Math.PI * r;
+      const dash = (value / 100) * circumference;
+      const color = value >= 80 ? "#26de81" : value >= 50 ? "#f7b731" : "#fc5c65";
+
+      return `
+        <div class="reporting-ring">
+          <svg viewBox="0 0 32 32">
+            <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"></circle>
+            <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="3" stroke-dasharray="${dash} ${circumference}" stroke-linecap="round"></circle>
+          </svg>
+          <div class="ring-pct">${Math.round(value)}%</div>
+        </div>
+      `;
+    }
+
+    function drawSparkline(canvas, weekly, trend) {
+      const ctx = canvas.getContext("2d");
+      const width = Math.max(canvas.offsetWidth * 2, 200);
+      const height = 92;
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const points = safeArray(weekly)
+        .filter(w => !w.missing && w.attendance !== null)
+        .map(w => num(w.attendance));
+
+      if (!points.length) return;
+
+      const max = Math.max(...points, 1);
+      const pad = 8;
+      const step = points.length > 1 ? (width - pad * 2) / (points.length - 1) : 0;
+      const color = trend === "up" ? "#26de81" : trend === "down" ? "#fc5c65" : "#7b8495";
+
+      ctx.beginPath();
+      points.forEach((v, i) => {
+        const x = pad + i * step;
+        const y = height - pad - (v / max) * (height - pad * 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(pad + (points.length - 1) * step, height);
+      ctx.lineTo(pad, height);
+      ctx.closePath();
+
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, color + "44");
+      gradient.addColorStop(1, color + "00");
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.beginPath();
+      points.forEach((v, i) => {
+        const x = pad + i * step;
+        const y = height - pad - (v / max) * (height - pad * 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      const lastX = pad + (points.length - 1) * step;
+      const lastY = height - pad - (points[points.length - 1] / max) * (height - pad * 2);
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    function buildCard(item) {
+      const trend = trendOf(item);
+      const g = item.growth;
+      const wowText = g && g.wowTotal !== null
+        ? `${g.wowTotal > 0 ? "+" : ""}${g.wowTotal.toFixed(0)}%`
+        : "—";
+
+      const wowClass = g && g.wowTotal > 0 ? "up" : g && g.wowTotal < 0 ? "down" : "flat";
+      const arrow = trend === "up" ? "↑" : trend === "down" ? "↓" : "→";
+      const subline = [item.leader, item.sc_code].filter(Boolean).join(" · ");
+
+      const latestMonth = item.monthly.length ? item.monthly[item.monthly.length - 1] : null;
+      let monthlyBadge = "";
+      if (latestMonth && latestMonth.change !== null) {
+        monthlyBadge = latestMonth.change > 0
+          ? `<span class="trend-badge up">Monthly +${latestMonth.change.toFixed(0)}%</span>`
+          : latestMonth.change < 0
+          ? `<span class="trend-badge down">Monthly ${latestMonth.change.toFixed(0)}%</span>`
+          : `<span class="trend-badge flat">Monthly 0%</span>`;
+      }
+
+      const statsMarkup = currentDataset === "cells"
+        ? `
+          <div class="mini-stat"><div class="val">${item.membership || "—"}</div><div class="lbl">Members</div></div>
+          <div class="mini-stat"><div class="val">${item.avg_attendance ? item.avg_attendance.toFixed(1) : "—"}</div><div class="lbl">Avg Att.</div></div>
+          <div class="mini-stat"><div class="val">${item.weekly.length}</div><div class="lbl">Reports</div></div>
+        `
+        : `
+          <div class="mini-stat"><div class="val">${item.cells_represented || "—"}</div><div class="lbl">Cells</div></div>
+          <div class="mini-stat"><div class="val">${item.avg_attendance ? item.avg_attendance.toFixed(1) : "—"}</div><div class="lbl">Avg Serv.</div></div>
+          <div class="mini-stat"><div class="val">${item.weekly.length}</div><div class="lbl">Reports</div></div>
+        `;
+
+      const card = document.createElement("div");
+      card.className = `card ${
+        item.missing_reports > 0
+          ? "trending-down"
+          : trend === "up"
+          ? "trending-up"
+          : trend === "down"
+          ? "trending-down"
+          : item.weekly.length === 0
+          ? "no-data"
+          : ""
+      }`;
+
+      card.innerHTML = `
+        <div class="card-header">
+          <div>
+            <div class="card-title">${item.name || "Untitled"}</div>
+            <div class="card-sub">${subline || "—"}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+            <span class="trend-badge ${wowClass}">${arrow} ${wowText}</span>
+            ${monthlyBadge}
+            ${item.missing_reports > 0 ? `<span class="trend-badge down">Missing ${item.missing_reports}</span>` : ``}
+            ${buildRing(item.reporting_pct)}
+          </div>
+        </div>
+
+        ${item.weekly.length
+          ? `<div class="sparkline-wrap"><canvas class="spark"></canvas></div>`
+          : `<div class="no-data-msg">No attendance data submitted</div>`}
+
+        <div class="card-stats">
+          ${statsMarkup}
+        </div>
+      `;
+
+      card.addEventListener("click", () => openModal(item));
+
+      if (item.weekly.length) {
+        requestAnimationFrame(() => {
+          const cvs = card.querySelector("canvas.spark");
+          if (cvs) drawSparkline(cvs, item.weekly, trend);
+        });
+      }
+
+      return card;
+    }
+
+    function buildSummary(items) {
+      const total = items.length;
+      const totalSize = currentDataset === "cells"
+        ? items.reduce((sum, item) => sum + num(item.membership), 0)
+        : items.reduce((sum, item) => sum + num(item.cells_represented), 0);
+
+      const trendingUp = items.filter(item => trendOf(item) === "up" && item.missing_reports === 0).length;
+      const trendingDown = items.filter(item => trendOf(item) === "down").length;
+      const noData = items.filter(item => safeArray(item.weekly).length === 0).length;
+      const missing = items.filter(item => item.missing_reports > 0).length;
+
+      document.getElementById("summary-bar").innerHTML = `
+        <div class="stat-pill"><span class="dot" style="background:#6c63ff;"></span><strong>${total}</strong> ${datasetLabel()}</div>
+        <div class="stat-pill"><span class="dot" style="background:#f7b731;"></span><strong>${totalSize.toLocaleString()}</strong> ${currentDataset === "cells" ? "Members" : "Cells Represented"}</div>
+        <div class="stat-pill"><span class="dot" style="background:#26de81;"></span><strong>${trendingUp}</strong> Trending Up</div>
+        <div class="stat-pill"><span class="dot" style="background:#fc5c65;"></span><strong>${trendingDown}</strong> Trending Down</div>
+        <div class="stat-pill"><span class="dot" style="background:#ff6b6b;"></span><strong>${missing}</strong> With Missing Reports</div>
+        <div class="stat-pill"><span class="dot" style="background:#7b8495;"></span><strong>${noData}</strong> No Data</div>
+      `;
+    }
+
+    function orderedGroupsFromItems(items) {
+      const dataGroups = [...new Set(
+        items
+          .map(item => item.group)
+          .filter(group => group && group !== "Total")
+      )];
+
+      return [
+        ...GROUP_ORDER.filter(g => dataGroups.includes(g)),
+        ...dataGroups.filter(g => !GROUP_ORDER.includes(g))
+      ];
+    }
+
+    function buildGroupTabs() {
+      const tabsEl = document.getElementById("group-tabs");
+      const groups = orderedGroupsFromItems(normalizeItems(currentItems()));
+
+      tabsEl.innerHTML = "";
+
+      const allTab = document.createElement("button");
+      allTab.className = "tab-btn active";
+      allTab.dataset.group = "all";
+      allTab.textContent = "All Groups";
+      tabsEl.appendChild(allTab);
+
+      groups.forEach(group => {
+        const btn = document.createElement("button");
+        btn.className = "tab-btn";
+        btn.dataset.group = group;
+        btn.textContent = group;
+        tabsEl.appendChild(btn);
+      });
+
+      tabsEl.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          tabsEl.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          activeGroup = btn.dataset.group;
+          render();
+        });
+      });
+    }
+
+    function getThreeMonthView_(weekly) {
+      return safeArray(weekly).slice(-12);
+    }
+
+    function render() {
+      const search = document.getElementById("search").value.toLowerCase().trim();
+      const sortKey = document.getElementById("sort-select").value;
+      const trendFilter = document.getElementById("trend-filter").value;
+
+      document.getElementById("subtitle").textContent = subtitleText();
+
+      let items = normalizeItems(currentItems()).filter(item => {
+        if (activeGroup !== "all" && item.group !== activeGroup) return false;
+
+        const haystack = [
+          item.name,
+          item.leader,
+          item.group,
+          item.sc_code
+        ].join(" ").toLowerCase();
+
+        if (search && !haystack.includes(search)) return false;
+
+        if (trendFilter !== "all") {
+          const trend = trendOf(item);
+          if (trendFilter === "up" && trend !== "up") return false;
+          if (trendFilter === "down" && trend !== "down") return false;
+          if (trendFilter === "flat" && trend !== "flat") return false;
+          if (trendFilter === "missing" && !(item.missing_reports > 0)) return false;
+        }
+
+        return true;
+      });
+
+      items.sort((a, b) => {
+        if (sortKey === "name") return a.name.localeCompare(b.name);
+        if (sortKey === "growth") return (b.growth?.slope || 0) - (a.growth?.slope || 0);
+        if (sortKey === "attendance") return b.avg_attendance - a.avg_attendance;
+        if (sortKey === "size") {
+          return currentDataset === "cells"
+            ? b.membership - a.membership
+            : b.cells_represented - a.cells_represented;
+        }
+        if (sortKey === "reporting") return b.reporting_pct - a.reporting_pct;
+        return (b.growth?.slope || 0) - (a.growth?.slope || 0);
+      });
+
+      buildSummary(items);
+
+      const wrap = document.getElementById("grid-wrap");
+      wrap.innerHTML = "";
+
+      if (!items.length) {
+        wrap.innerHTML = `
+          <div class="empty-state">
+            <p>No ${datasetLabel().toLowerCase()} match your filters.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const hasCustomView =
+        activeGroup !== "all" ||
+        search ||
+        trendFilter !== "all" ||
+        sortKey !== "growth";
+
+      if (hasCustomView) {
+        const grid = document.createElement("div");
+        grid.className = "grid";
+        items.forEach(item => grid.appendChild(buildCard(item)));
+        wrap.appendChild(grid);
+        return;
+      }
+
+      const groups = orderedGroupsFromItems(items);
+      groups.forEach(group => {
+        const groupItems = items.filter(item => item.group === group);
+        if (!groupItems.length) return;
+
+        const label = document.createElement("div");
+        label.className = "group-label";
+        label.textContent = group;
+        wrap.appendChild(label);
+
+        const grid = document.createElement("div");
+        grid.className = "grid";
+        groupItems.forEach(item => grid.appendChild(buildCard(item)));
+        wrap.appendChild(grid);
+      });
+    }
+
+    function openModal(item) {
+      modalItem = item;
+      const modalWeekly = getThreeMonthView_(item.weekly);
+      const monthlyReport = item.monthly || [];
+
+      document.getElementById("modal-title").textContent = item.name || "Untitled";
+      document.getElementById("modal-sub").textContent =
+        [item.leader, item.group, item.sc_code, "Last 3 months + Monthly report"].filter(Boolean).join(" · ");
+
+      const latestMonth = monthlyReport.length ? monthlyReport[monthlyReport.length - 1] : null;
+      const monthlyText = latestMonth && latestMonth.change !== null
+        ? `${latestMonth.change > 0 ? "+" : ""}${latestMonth.change.toFixed(0)}%`
+        : "—";
+
+      const statsMarkup = currentDataset === "cells"
+        ? `
+          <div class="modal-stat"><div class="val">${item.membership || "—"}</div><div class="lbl">Members</div></div>
+          <div class="modal-stat"><div class="val">${item.avg_attendance ? item.avg_attendance.toFixed(1) : "—"}</div><div class="lbl">Avg Att.</div></div>
+          <div class="modal-stat"><div class="val">${Math.round(item.reporting_pct || 0)}%</div><div class="lbl">Reporting</div></div>
+          <div class="modal-stat"><div class="val">${monthlyText}</div><div class="lbl">Monthly MoM</div></div>
+        `
+        : `
+          <div class="modal-stat"><div class="val">${item.cells_represented || "—"}</div><div class="lbl">Cells</div></div>
+          <div class="modal-stat"><div class="val">${item.avg_attendance ? item.avg_attendance.toFixed(1) : "—"}</div><div class="lbl">Avg Serv.</div></div>
+          <div class="modal-stat"><div class="val">${Math.round(item.reporting_pct || 0)}%</div><div class="lbl">Reporting</div></div>
+          <div class="modal-stat"><div class="val">${monthlyText}</div><div class="lbl">Monthly MoM</div></div>
+        `;
+
+      document.getElementById("modal-stats").innerHTML = statsMarkup;
+      drawModalChart(modalWeekly);
+      buildModalTables(modalWeekly, monthlyReport);
+
+      document.getElementById("modal-overlay").classList.add("open");
+    }
+
+    function closeModal(event) {
+      if (event.target.id === "modal-overlay") {
+        closeModalBtn();
+      }
+    }
+
+    function closeModalBtn() {
+      document.getElementById("modal-overlay").classList.remove("open");
+      modalItem = null;
+    }
+
+    function drawModalChart(weekly) {
+      const canvas = document.getElementById("modal-chart");
+      const ctx = canvas.getContext("2d");
+      const width = Math.max(canvas.offsetWidth * 2, 400);
+      const height = 260;
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const validPoints = safeArray(weekly)
+        .filter(w => !w.missing && w.attendance !== null);
+
+      const points = validPoints.map(w => num(w.attendance));
+      const labels = validPoints.map(w => w.week);
+
+      if (!points.length) return;
+
+      const max = Math.max(...points, 1);
+      const padX = 40;
+      const padY = 24;
+      const usableW = width - padX * 2;
+      const usableH = height - padY * 2;
+      const step = points.length > 1 ? usableW / (points.length - 1) : 0;
+
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const y = padY + (usableH / 3) * i;
+        ctx.beginPath();
+        ctx.moveTo(padX, y);
+        ctx.lineTo(width - padX, y);
+        ctx.stroke();
+      }
+
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = padX + i * step;
+        const y = padY + usableH - (p / max) * usableH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+
+      const trend = modalItem ? trendOf(modalItem) : "flat";
+      const color = trend === "up" ? "#26de81" : trend === "down" ? "#fc5c65" : "#6c63ff";
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      points.forEach((p, i) => {
+        const x = padX + i * step;
+        const y = padY + usableH - (p / max) * usableH;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      });
+
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "20px DM Sans";
+      ctx.textAlign = "center";
+      labels.forEach((label, i) => {
+        const x = padX + i * step;
+        ctx.fillText(label, x, height - 8);
+      });
+    }
+
+    function buildModalTables(weekly, monthlyReport) {
+      let weeklyRows = "";
+
+      if (weekly.length >= 1) {
+        weekly.forEach((w, i) => {
+          if (i === 0) {
+            weeklyRows += `<tr><td>${w.week}</td><td>${w.missing ? "Missing" : num(w.attendance)}</td><td>—</td></tr>`;
+            return;
+          }
+
+          const prev = weekly[i - 1].missing ? null : num(weekly[i - 1].attendance);
+          const curr = w.missing ? null : num(w.attendance);
+
+          let wow = "—";
+          let cls = "";
+
+          if (curr === null) {
+            wow = "Missing";
+            cls = "neg";
+          } else if (prev !== null && prev !== 0) {
+            const deltaPct = ((curr - prev) / prev) * 100;
+            wow = `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(0)}%`;
+            cls = deltaPct > 0 ? "pos" : deltaPct < 0 ? "neg" : "";
+          }
+
+          weeklyRows += `
+            <tr>
+              <td>${w.week}</td>
+              <td>${w.missing ? "Missing" : curr}</td>
+              <td class="${cls}">${wow}</td>
+            </tr>
+          `;
+        });
+      }
+
+      let monthlyRows = "";
+      monthlyReport.forEach(m => {
+        let changeText = "—";
+        let cls = "";
+
+        if (m.change !== null) {
+          changeText = `${m.change > 0 ? "+" : ""}${m.change.toFixed(0)}%`;
+          cls = m.change > 0 ? "pos" : m.change < 0 ? "neg" : "";
+        }
+
+        monthlyRows += `
+          <tr>
+            <td>${m.month}</td>
+            <td>${m.total}</td>
+            <td>${m.missing}</td>
+            <td class="${cls}">${changeText}</td>
+          </tr>
+        `;
+      });
+
+      document.getElementById("modal-tables").innerHTML = `
+        <div class="table-block">
+          <h3>Weekly View</h3>
+          <table>
+            <tr>
+              <th>Week</th>
+              <th>Attendance</th>
+              <th>WoW</th>
+            </tr>
+            ${weeklyRows}
+          </table>
+        </div>
+
+        <div class="table-block">
+          <h3>Monthly Report</h3>
+          <table>
+            <tr>
+              <th>Month</th>
+              <th>Total</th>
+              <th>Missing</th>
+              <th>MoM</th>
+            </tr>
+            ${monthlyRows}
+          </table>
+        </div>
+      `;
+    }
+
+    async function loadData() {
+      const wrap = document.getElementById("grid-wrap");
+      wrap.innerHTML = `
+        <div class="empty-state">
+          <p>Loading dashboard data…</p>
+        </div>
+      `;
+
+      try {
+        const response = await fetch(WEB_APP_URL);
+        const text = await response.text();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (parseError) {
+          throw new Error("Apps Script is not returning valid JSON.");
+        }
+
+        rawPayload = {
+          cells: safeArray(data.cells),
+          services: safeArray(data.services)
+        };
+
+        buildGroupTabs();
+        render();
+      } catch (error) {
+        wrap.innerHTML = `
+          <div class="empty-state">
+            <p>Unable to load dashboard data.</p>
+            <p class="sub">${error.message}</p>
+          </div>
+        `;
+        document.getElementById("summary-bar").innerHTML = "";
+      }
+    }
+
+    document.getElementById("search").addEventListener("input", render);
+    document.getElementById("sort-select").addEventListener("change", render);
+    document.getElementById("trend-filter").addEventListener("change", render);
+
+    document.querySelectorAll("#dataset-tabs .tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#dataset-tabs .tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentDataset = btn.dataset.dataset;
+        activeGroup = "all";
+        buildGroupTabs();
+        render();
+      });
+    });
+
+    loadData();
+  </script>
+</body>
+</html>

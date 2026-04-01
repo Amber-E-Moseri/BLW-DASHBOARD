@@ -64,6 +64,20 @@
       color: var(--text);
     }
 
+    .logo-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-mark {
+      width: 38px;
+      height: 38px;
+      object-fit: contain;
+      display: block;
+      border-radius: 6px;
+    }
+
     .logo-area p {
       color: var(--text-dim);
       font-size: 13px;
@@ -174,6 +188,62 @@
       border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
       background: var(--surface);
+    }
+
+    .definitions {
+      padding: 10px 40px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .definitions details {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .definitions summary {
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 12px;
+      list-style: none;
+      user-select: none;
+    }
+
+    .definitions summary::-webkit-details-marker { display: none; }
+
+    .definitions summary::after {
+      content: 'Show';
+      float: right;
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 11px;
+    }
+
+    .definitions details[open] summary::after {
+      content: 'Hide';
+    }
+
+    .definitions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px 12px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .def-item {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    .def-item strong {
+      color: var(--text);
+      font-weight: 600;
     }
 
     .stat-pill {
@@ -564,7 +634,10 @@
 <body>
   <header>
     <div class="logo-area">
-      <h1>BLW Canada Dashboard</h1>
+      <div class="logo-title-row">
+        <img src="../canada_sr (1).png" alt="BLW Canada Logo" class="logo-mark" />
+        <h1>BLW Canada Dashboard</h1>
+      </div>
       <p>Cell attendance, services, trends and reporting metrics</p>
     </div>
 
@@ -613,6 +686,24 @@
   </header>
 
   <div id="summary-bar" class="summary-bar"></div>
+
+  <section class="definitions" aria-label="Dashboard definitions">
+    <details>
+      <summary>Definitions & Label Guide</summary>
+      <div class="definitions-grid">
+        <div class="def-item"><strong>Growing:</strong> sustained upward movement across recent valid weeks.</div>
+        <div class="def-item"><strong>Emerging Growth:</strong> upward direction, but not yet stable.</div>
+        <div class="def-item"><strong>Recovered:</strong> return near baseline after a sharp dip; not counted as growth.</div>
+        <div class="def-item"><strong>Flat:</strong> no meaningful up/down change.</div>
+        <div class="def-item"><strong>Declining:</strong> sustained downward movement.</div>
+        <div class="def-item"><strong>Volatile:</strong> large swings without clear direction.</div>
+        <div class="def-item"><strong>Reporting %:</strong> share of expected reports actually submitted.</div>
+        <div class="def-item"><strong>Missing Reports:</strong> expected reports with no submitted attendance value.</div>
+        <div class="def-item"><strong>Needs Attention:</strong> low reporting, missing reports, or zero-attendance risk.</div>
+        <div class="def-item"><strong>3M Avg:</strong> average attendance over the latest three reported periods.</div>
+      </div>
+    </details>
+  </section>
 
   <div id="top-tabs" class="tabs"></div>
   <div id="tabs" class="tabs"></div>
@@ -728,6 +819,13 @@
     function avgLastN(arr, n) {
       const vals = lastN(arr, n).map(num);
       return vals.length ? avg(vals) : 0;
+    }
+
+    function validSeriesValues(series) {
+      return (series || [])
+        .filter(v => v !== null && v !== undefined && v !== '')
+        .map(num)
+        .filter(v => Number.isFinite(v));
     }
 
     function calcLast3MonthTrendPct(series) {
@@ -986,30 +1084,47 @@
       };
     }
 
-    // CELLS: Trend logic with stable growth vs emerging growth vs volatile
+    // CELLS: Growth requires sustained movement, not a bounce-back after a dip.
     function calcTrendForCells(series) {
-      if (!Array.isArray(series) || series.length < 6) {
+      if (!Array.isArray(series) || series.length < 2) {
         return { direction: 'flat', pct: 0, classification: 'Flat' };
       }
 
-      const clean = series.map(v => num(v));
-      const prevThreeWeeks = clean.slice(-6, -3);
-      const lastThreeWeeks = clean.slice(-3);
+      const totalPoints = series.length;
+      const clean = validSeriesValues(series);
+      const validCount = clean.length;
+      const missingCount = Math.max(totalPoints - validCount, 0);
+      const hasMissing = missingCount > 0;
 
-      const prevAvg = avg(prevThreeWeeks);
-      const lastAvg = avg(lastThreeWeeks);
-      const pctChange = prevAvg === 0 ? (lastAvg > 0 ? 100 : 0) : ((lastAvg - prevAvg) / prevAvg) * 100;
-
-      const recent = clean.slice(-6);
-      const recentDiffs = [];
-      for (let i = 1; i < recent.length; i++) {
-        recentDiffs.push(recent[i] - recent[i - 1]);
+      if (validCount < 4) {
+        return { direction: 'flat', pct: 0, classification: 'Flat' };
       }
 
-      const nonZeroDiffs = recentDiffs.filter(d => d !== 0);
+      const windowSize = validCount >= 6 ? 3 : 2;
+      const prevWindow = clean.slice(-(windowSize * 2), -windowSize);
+      const latestWindow = clean.slice(-windowSize);
+
+      if (!prevWindow.length || !latestWindow.length) {
+        return { direction: 'flat', pct: 0, classification: 'Flat' };
+      }
+
+      const prevAvg = avg(prevWindow);
+      const lastAvg = avg(latestWindow);
+      const pctChange = prevAvg === 0 ? (lastAvg > 0 ? 100 : 0) : ((lastAvg - prevAvg) / prevAvg) * 100;
+      const trendThreshold = 4;
+
+      const latestThree = clean.slice(-3);
+      const supportiveWeeks = latestThree.filter(v => v > prevAvg).length;
+
+      const recentForDiffs = clean.slice(-6);
+      const diffs = [];
+      for (let i = 1; i < recentForDiffs.length; i++) {
+        diffs.push(recentForDiffs[i] - recentForDiffs[i - 1]);
+      }
+      const nonZeroDiffs = diffs.filter(d => d !== 0);
       const upMoves = nonZeroDiffs.filter(d => d > 0).length;
       const downMoves = nonZeroDiffs.filter(d => d < 0).length;
-      const moveCount = Math.max(upMoves + downMoves, 1);
+      const moveCount = Math.max(nonZeroDiffs.length, 1);
       const directionBias = Math.abs(upMoves - downMoves) / moveCount;
 
       let alternation = 0;
@@ -1019,47 +1134,49 @@
         }
       }
 
+      const recent = clean.slice(-6);
       const windowMax = Math.max(...recent, 0);
       const windowMin = Math.min(...recent, 0);
       const swingRatio = (windowMax - windowMin) / Math.max(prevAvg, lastAvg, 1);
 
-      const recent4 = clean.slice(-4);
-      let recentUps = 0;
-      let recentDowns = 0;
-      for (let i = 1; i < recent4.length; i++) {
-        if (recent4[i] > recent4[i - 1]) recentUps++;
-        if (recent4[i] < recent4[i - 1]) recentDowns++;
-      }
+      // Recovery guard: a deep dip in previous window followed by return near baseline is "Recovered", not "Growing".
+      const baselinePool = clean.length >= 9 ? clean.slice(-9, -3) : clean.slice(0, -3);
+      const baselineAvg = baselinePool.length ? avg(baselinePool) : prevAvg;
+      const prevMin = Math.min(...prevWindow);
+      const hadAbnormalDip = baselineAvg > 0 && prevMin <= baselineAvg * 0.75;
+      const returnedNearBaseline =
+        baselineAvg > 0 &&
+        lastAvg >= baselineAvg * 0.92 &&
+        lastAvg <= baselineAvg * 1.12;
+      const isRecovery = hadAbnormalDip && returnedNearBaseline;
 
       let direction = 'flat';
       let classification = 'Flat';
 
-      // Strong, stable growth: sustained increase with minimal dips.
-      if (pctChange > 5 && recentUps >= 2 && recentDowns === 0) {
-        direction = 'up';
-        classification = 'Growing';
-      // Upward but not smooth: still rising, but with noticeable dips.
-      } else if (pctChange > 5 && lastAvg > prevAvg && recentUps >= 1 && recentDowns >= 1) {
-        direction = 'emerging';
-        classification = 'Emerging Growth';
-      // Instability with no reliable direction.
-      } else if (swingRatio > 0.35 && directionBias < 0.34 && alternation >= 2) {
+      if (swingRatio > 0.42 && directionBias < 0.35 && alternation >= 2) {
         direction = 'volatile';
         classification = 'Volatile';
-      } else if (pctChange < -5 && recentDowns >= 2) {
+      } else if (pctChange <= -trendThreshold && downMoves >= Math.max(1, Math.floor(moveCount / 2))) {
         direction = 'down';
         classification = 'Declining';
-      } else if (Math.abs(pctChange) <= 5) {
-        // Check for recovery pattern: dip followed by return to baseline.
-        const baseline = prevAvg;
-        const currentLevel = lastAvg;
-        if (clean[clean.length - 4] < baseline && currentLevel >= baseline * 0.95) {
-          direction = 'flat';
-          classification = 'Recovered';
-        } else if (Math.max(...lastThreeWeeks) - Math.min(...lastThreeWeeks) > Math.max(baseline * 0.3, 1)) {
-          direction = 'volatile';
-          classification = 'Volatile';
-        }
+      } else if (isRecovery) {
+        direction = 'flat';
+        classification = 'Recovered';
+      } else if (
+        pctChange >= trendThreshold &&
+        lastAvg > prevAvg &&
+        supportiveWeeks >= 2 &&
+        upMoves >= downMoves + 1 &&
+        !isRecovery
+      ) {
+        direction = hasMissing ? 'emerging' : 'up';
+        classification = hasMissing ? 'Emerging Growth' : 'Growing';
+      } else if (pctChange > 0.5 && lastAvg > prevAvg) {
+        direction = 'emerging';
+        classification = 'Emerging Growth';
+      } else if (Math.abs(pctChange) <= trendThreshold) {
+        direction = 'flat';
+        classification = 'Flat';
       }
 
       return {
@@ -1210,6 +1327,7 @@
       let series = [];
       let isMonthlyData = false;
       let weeklyMissingReports = false;
+      let missingReportWeeks = [];
 
       if (monthlyObj && typeof monthlyObj === 'object' && !Array.isArray(monthlyObj)) {
         isMonthlyData = true;
@@ -1223,9 +1341,18 @@
           return num(w.attendance);
         });
         weeklyMissingReports = weeklyArr.some(w => w?.missing === true || w?.attendance === null || w?.attendance === undefined || w?.attendance === '');
+        missingReportWeeks = weeklyArr
+          .filter(w => w?.missing === true || w?.attendance === null || w?.attendance === undefined || w?.attendance === '')
+          .map((w, i) => safeText(w?.week, `P${i + 1}`))
+          .filter(Boolean);
       } else if (Array.isArray(item.spark)) {
         labels = item.spark.map((_, i) => item.sparkLabels?.[i] || `P${i + 1}`);
         series = item.spark.map(num);
+        missingReportWeeks = item.spark
+          .map((v, i) => ({ v, lbl: item.sparkLabels?.[i] || `P${i + 1}` }))
+          .filter(x => x.v === null || x.v === undefined || x.v === '')
+          .map(x => safeText(x.lbl))
+          .filter(Boolean);
       } else {
         const total = num(item.total_attendance) || num(item.attendance) || num(item.total) || num(item.avg) ||
           num(item.pp) + num(item.b1) + num(item.b2) + num(item.b3) + num(item.o);
@@ -1295,6 +1422,7 @@
         monthOnMonthPct,
         isMonthlyData,
         hasMissingReports,
+        missingReportWeeks: unique(missingReportWeeks),
         trend: {
           ...trend,
           direction: trendDirection
@@ -1562,11 +1690,7 @@
 
       // Format month-on-month change if applicable
       let momHTML = '';
-      if (d.series.length >= 2) {
-        const sign = d.monthOnMonthPct > 0 ? '+' : '';
-        const momClass = d.monthOnMonthPct > 0 ? 'pos' : d.monthOnMonthPct < 0 ? 'neg' : '';
-        momHTML = `<span style="font-size:10px;font-weight:500" class="wow-table ${momClass}"> ${sign}${Math.round(d.monthOnMonthPct)}%</span>`;
-      }
+      // Classification-first display: avoid noisy percent badges on cards.
 
       card.innerHTML = `
         <div class="card-header">
@@ -1682,7 +1806,9 @@
           const reasons = (d.needsAttentionReasons || []).join(' • ');
           const names = (d.needsAttentionNames || []).join(', ');
           const namesHtml = names ? `<br><span>Fellowship(s): ${names}</span>` : '';
-          attentionEl.innerHTML = `<strong>Needs Attention:</strong> ${reasons || 'Yes'}${namesHtml}`;
+          const missingWeeks = (d.missingReportWeeks || []).filter(Boolean);
+          const missingWeeksHtml = missingWeeks.length ? `<br><span>Missing week(s): ${missingWeeks.join(', ')}</span>` : '';
+          attentionEl.innerHTML = `<strong>Needs Attention:</strong> ${reasons || 'Yes'}${missingWeeksHtml}${namesHtml}`;
           attentionEl.style.display = 'block';
         } else {
           attentionEl.innerHTML = '';
@@ -2041,27 +2167,61 @@
       initDashboard();
     }
 
-    function loadViaJsonp(url) {
+    function loadViaJsonp(url, timeoutMs = 12000) {
       return new Promise((resolve, reject) => {
         const cb = '__blwDashCb_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
         const script = document.createElement('script');
+        let timeoutId = null;
+        let settled = false;
         const cleanup = () => {
+          if (timeoutId) clearTimeout(timeoutId);
           delete window[cb];
           script.remove();
         };
 
         window[cb] = payload => {
+          if (settled) return;
+          settled = true;
           cleanup();
           resolve(payload);
         };
         script.onerror = () => {
+          if (settled) return;
+          settled = true;
           cleanup();
           reject(new Error('Could not reach the Apps Script web app.'));
         };
 
+        timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s.`));
+        }, timeoutMs);
+
+        script.async = true;
         script.src = `${url}${url.includes('?') ? '&' : '?'}callback=${cb}&_=${Date.now()}`;
         document.body.appendChild(script);
       });
+    }
+
+    async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+      } catch (err) {
+        if (err?.name === 'AbortError') {
+          throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s.`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     async function loadDashboard() {
@@ -2071,16 +2231,12 @@
       console.log('Loading dashboard data from:', API_URL);
 
       try {
-        const payload = await loadViaJsonp(API_URL);
+        const payload = await loadViaJsonp(API_URL, 12000);
         applyPayload(payload);
       } catch (jsonpErr) {
         console.warn('JSONP load failed, trying fetch fallback:', jsonpErr);
         try {
-          const response = await fetch(API_URL);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const payload = await response.json();
+          const payload = await fetchJsonWithTimeout(API_URL, 12000);
           applyPayload(payload);
         } catch (fetchErr) {
           const message = fetchErr?.message || jsonpErr?.message || 'Unknown error';

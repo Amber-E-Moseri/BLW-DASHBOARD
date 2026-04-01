@@ -222,7 +222,11 @@
       align-items: center;
       gap: 10px;
       padding: 13px 22px;
+      border: none;
       border-right: 1px solid var(--border);
+      background: transparent;
+      text-align: left;
+      font-family: inherit;
       white-space: nowrap;
       flex-shrink: 0;
       transition: background 0.15s;
@@ -230,6 +234,11 @@
     }
     .stat-pill:hover { background: var(--surface2); }
     .stat-pill:first-child { padding-left: 0; }
+    .stat-pill.clickable { cursor: pointer; }
+    .stat-pill.active {
+      background: var(--gold-dim);
+      box-shadow: inset 0 0 0 1px rgba(240,180,41,0.28);
+    }
 
     .stat-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
@@ -2301,7 +2310,6 @@ var v0=Object.defineProperty;var k0=(l,h,b)=>h in l?v0(l,h,{enumerable:!0,config
       </div>
       <div class="modal-body">
         <div class="modal-kpis" id="modal-kpis"></div>
-        <div id="modal-insights"></div>
         <div>
           <div class="modal-section-lbl">Attendance Trend</div>
           <div class="modal-chart-wrap"><canvas id="modal-chart"></canvas></div>
@@ -2325,6 +2333,7 @@ let rawPayload = { overview: [], cells: [], services: [], last_updated: null };
 let activeTab = 'overview';   // overview | cells | services
 let activeGroup = 'all';
 let attentionMode = false;
+let summaryAction = 'none';
 let activeView = 'cells';     // cells | monthly
 let modalChart = null;
 let monthlyCharts = [];
@@ -2442,7 +2451,52 @@ function normalizeWeekly(item) {
   });
 
   addMany(collectWeeklyFromColumns(item));
-  return merged;
+  return sortWeeklyRows(merged);
+}
+
+function weekOrderKey(label) {
+  const clean = String(label || '').trim();
+  if (!clean) return Number.MAX_SAFE_INTEGER;
+  const [monthRaw = '', segmentRaw = ''] = clean.split(' ');
+  const monthIndex = MONTH_ORDER.findIndex(m => m.toLowerCase() === monthRaw.toLowerCase());
+  if (monthIndex === -1) return Number.MAX_SAFE_INTEGER;
+  const segment = segmentRaw.toUpperCase();
+
+  if (segment === 'PP') return monthIndex * 100 + 0;
+  if (segment === 'O') return monthIndex * 100 + 90;
+  if (/^B\d+$/.test(segment)) return monthIndex * 100 + Number(segment.slice(1));
+  if (/^W\d+$/.test(segment)) return monthIndex * 100 + Number(segment.slice(1));
+  return monthIndex * 100 + 99;
+}
+
+function sortWeeklyRows(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const ka = weekOrderKey(a.week);
+    const kb = weekOrderKey(b.week);
+    if (ka !== kb) return ka - kb;
+    return String(a.week || '').localeCompare(String(b.week || ''));
+  });
+}
+
+function aggregateWeeklyForRows(rows) {
+  const weekMap = {};
+  (rows || []).forEach(row => {
+    (row.weekly || []).forEach(w => {
+      const label = String(w.week || '').trim();
+      if (!label) return;
+      if (!weekMap[label]) weekMap[label] = { week: label, attendance: 0, reports: 0 };
+      if (!w.missing && w.attendance !== null && w.attendance !== undefined) {
+        weekMap[label].attendance += Number(w.attendance) || 0;
+        weekMap[label].reports += 1;
+      }
+    });
+  });
+
+  return sortWeeklyRows(Object.values(weekMap).map(w => ({
+    week: w.week,
+    attendance: w.reports > 0 ? w.attendance : null,
+    missing: w.reports === 0
+  })));
 }
 
 function calcGrowth(weekly) {
@@ -2480,58 +2534,14 @@ function buildRing(pct) {
   </div>`;
 }
 
-function normalizeItems(tab) {
-  const src = Array.isArray(rawPayload[tab]) ? rawPayload[tab] : [];
+function normalizeCellItems() {
+  const src = Array.isArray(rawPayload.cells) ? rawPayload.cells : [];
   return src.map((d, i) => {
     const weekly = normalizeWeekly(d);
-    if (tab === 'overview') {
-      const membership = Number(d.total_members ?? d.cell_members ?? 0) || 0;
-      const avgAttendance = Number(d.avg_attendance ?? 0) || 0;
-      const engagement = membership > 0 && avgAttendance > 0 ? (avgAttendance / membership) * 100 : null;
-      return {
-        id: `overview-${i}`,
-        tab,
-        name: d.name || d.group || `Group ${i + 1}`,
-        leader: 'Regional overview',
-        membership,
-        avg_attendance: avgAttendance,
-        reporting_pct: Number(d.reporting_pct ?? 0) || 0,
-        sc_code: '',
-        group: d.group || d.name || '',
-        missing_reports: Number(d.missing_reports ?? 0) || 0,
-        weekly,
-        engagement_pct: engagement,
-        item_count: Number(d.total_cells ?? d.cell_count ?? 0) || 0,
-        service_count: Number(d.total_services ?? d.service_count ?? 0) || 0,
-        cells_needing_attention: Number(d.cells_needing_attention ?? 0) || 0,
-        growth: calcGrowth(weekly)
-      };
-    }
-
-    if (tab === 'services') {
-      const base = Number(d.cells_represented ?? 0) || 0;
-      return {
-        id: `service-${i}`,
-        tab,
-        name: d.name || `Service ${i + 1}`,
-        leader: d.leader || '—',
-        membership: base,
-        avg_attendance: Number(d.avg_attendance ?? 0) || 0,
-        reporting_pct: Number(d.reporting_pct ?? 0) || 0,
-        sc_code: d.sc_code || '',
-        group: d.group || '',
-        missing_reports: Number(d.missing_reports ?? 0) || 0,
-        weekly,
-        engagement_pct: base > 0 && Number(d.avg_attendance ?? 0) > 0 ? (Number(d.avg_attendance) / base) * 100 : null,
-        metric_label: 'Cells Repr.',
-        growth: calcGrowth(weekly)
-      };
-    }
-
     const mem = Number(d.membership ?? 0) || 0;
     return {
       id: `cell-${i}`,
-      tab,
+      tab: 'cells',
       name: d.name || `Cell ${i + 1}`,
       leader: d.leader || '—',
       membership: mem,
@@ -2541,11 +2551,115 @@ function normalizeItems(tab) {
       group: d.group || '',
       missing_reports: Number(d.missing_reports ?? 0) || 0,
       weekly,
+      needs_attention: d.needs_attention === true,
       engagement_pct: Number.isFinite(Number(d.engagement_pct)) ? Number(d.engagement_pct) : (mem > 0 && Number(d.avg_attendance ?? 0) > 0 ? (Number(d.avg_attendance) / mem) * 100 : null),
       metric_label: 'Members',
       growth: calcGrowth(weekly)
     };
   });
+}
+
+function normalizeServiceItems() {
+  const src = Array.isArray(rawPayload.services) ? rawPayload.services : [];
+  const groups = {};
+
+  src.forEach((d, i) => {
+    const name = String(d.name || '').trim() || `Service ${i + 1}`;
+    const group = String(d.group || '').trim();
+    const key = `${group.toLowerCase()}|${name.toLowerCase()}`;
+    if (!groups[key]) {
+      groups[key] = {
+        id: `service-${Object.keys(groups).length}`,
+        tab: 'services',
+        name,
+        leader: d.leader || '—',
+        sc_code: d.sc_code || '',
+        group,
+        membership: 0,
+        weeklyRows: [],
+        flagged: false
+      };
+    }
+
+    const row = groups[key];
+    row.membership += Number(d.cells_represented ?? d.membership ?? 0) || 0;
+    row.weeklyRows.push({ weekly: normalizeWeekly(d) });
+    row.flagged = row.flagged || d.needs_attention === true;
+    if (!row.leader || row.leader === '—') row.leader = d.leader || row.leader;
+    if (!row.sc_code) row.sc_code = d.sc_code || '';
+  });
+
+  return Object.values(groups).map(row => {
+    const weekly = aggregateWeeklyForRows(row.weeklyRows);
+    const reportedWeeks = weekly.filter(w => !w.missing && w.attendance !== null).length;
+    const totalAttendance = weekly.reduce((sum, w) => sum + (w.missing || w.attendance === null ? 0 : Number(w.attendance) || 0), 0);
+    const avgAttendance = reportedWeeks ? totalAttendance / reportedWeeks : 0;
+    const missingReports = weekly.filter(w => w.missing).length;
+    const reportingPct = weekly.length ? ((weekly.length - missingReports) / weekly.length) * 100 : 0;
+
+    return {
+      id: row.id,
+      tab: 'services',
+      name: row.name,
+      leader: row.leader || '—',
+      membership: row.membership,
+      avg_attendance: avgAttendance,
+      reporting_pct: reportingPct,
+      sc_code: row.sc_code,
+      group: row.group,
+      missing_reports: missingReports,
+      weekly,
+      needs_attention: row.flagged || reportingPct < 50 || missingReports >= 2,
+      engagement_pct: row.membership > 0 && avgAttendance > 0 ? (avgAttendance / row.membership) * 100 : null,
+      metric_label: 'Cells Repr.',
+      growth: calcGrowth(weekly)
+    };
+  });
+}
+
+function needsAttentionForTab(item, tab) {
+  if (tab === 'overview') return (item.cells_needing_attention || 0) > 0 || item.reporting_pct < 50 || item.missing_reports >= 2;
+  return item.needs_attention === true || item.reporting_pct < 50 || item.missing_reports >= 2;
+}
+
+function buildOverviewSection(tabKey, items) {
+  const weekly = aggregateWeeklyForRows(items);
+  const totalCount = items.length;
+  const avgAttendance = totalCount ? items.reduce((s, d) => s + (Number(d.avg_attendance) || 0), 0) / totalCount : 0;
+  const avgReporting = totalCount ? items.reduce((s, d) => s + (Number(d.reporting_pct) || 0), 0) / totalCount : 0;
+  const attentionCount = items.filter(d => needsAttentionForTab(d, tabKey)).length;
+  const label = tabKey === 'cells' ? 'Cells Overview' : 'Services Overview';
+
+  return {
+    id: `overview-${tabKey}`,
+    tab: 'overview',
+    overview_type: tabKey,
+    name: label,
+    leader: 'Summary',
+    membership: totalCount,
+    avg_attendance: avgAttendance,
+    reporting_pct: avgReporting,
+    sc_code: '',
+    group: label,
+    missing_reports: weekly.filter(w => w.missing).length,
+    weekly,
+    needs_attention: attentionCount > 0,
+    engagement_pct: null,
+    item_count: totalCount,
+    cells_needing_attention: attentionCount,
+    growth: calcGrowth(weekly)
+  };
+}
+
+function normalizeItems(tab) {
+  if (tab === 'cells') return normalizeCellItems();
+  if (tab === 'services') return normalizeServiceItems();
+  if (tab === 'overview') {
+    const cells = normalizeCellItems();
+    const services = normalizeServiceItems();
+    return [buildOverviewSection('cells', cells), buildOverviewSection('services', services)];
+  }
+  return [];
 }
 
 function currentItems() {
@@ -2561,7 +2675,13 @@ function currentTabLabel() {
 }
 
 function secondaryMetricLabel(tab) {
-  return tab === 'overview' ? 'Members' : tab === 'services' ? 'Cells Repr.' : 'Members';
+  if (tab === 'services') return 'Cells Repr.';
+  if (tab === 'overview') return 'Items';
+  return 'Members';
+}
+
+function overviewItemLabel(d) {
+  return d?.overview_type === 'services' ? 'Services' : 'Cells';
 }
 
 function engagePct(d) {
@@ -2574,8 +2694,7 @@ function engageClass(p) {
 }
 
 function needsAttention(d) {
-  if (activeTab === 'overview') return (d.cells_needing_attention || 0) > 0 || d.reporting_pct < 50 || d.missing_reports >= 2;
-  return d.reporting_pct < 50 || d.missing_reports >= 2;
+  return needsAttentionForTab(d, activeTab);
 }
 
 function buildTopTabs() {
@@ -2586,15 +2705,15 @@ function buildTopTabs() {
   ];
   const el = document.getElementById('top-tabs');
   el.innerHTML = tabs.map(([key, label]) => {
-    const count = Array.isArray(rawPayload[key]) ? rawPayload[key].length : 0;
+    const count = normalizeItems(key).length;
     return `<button class="tab-btn ${activeTab === key ? 'active' : ''}" data-tab="${key}">${label} (${count})</button>`;
   }).join('');
   el.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       activeTab = btn.dataset.tab;
       activeGroup = 'all';
-      attentionMode = false;
-      document.getElementById('btn-attention').classList.remove('active');
+      summaryAction = 'none';
+      setAttentionMode(false);
       buildTopTabs();
       buildGroupTabs();
       render();
@@ -2604,17 +2723,22 @@ function buildTopTabs() {
 
 function buildGroupTabs() {
   const data = currentItems();
-  const groups = currentGroups();
   const el = document.getElementById('group-tabs');
   el.innerHTML = '';
+  if (activeTab === 'overview') {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = '';
+  const groups = currentGroups();
 
   const allBtn = document.createElement('button');
   allBtn.className = 'group-tab-btn' + (activeGroup === 'all' ? ' active' : '');
   allBtn.innerHTML = `All Groups <span class="group-tab-count">${data.length}</span>`;
   allBtn.onclick = () => {
     activeGroup = 'all';
-    attentionMode = false;
-    document.getElementById('btn-attention').classList.remove('active');
+    summaryAction = 'none';
+    setAttentionMode(false);
     buildGroupTabs();
     render();
   };
@@ -2627,8 +2751,8 @@ function buildGroupTabs() {
     btn.innerHTML = `${escapeHtml(g)} <span class="group-tab-count">${cnt}</span>`;
     btn.onclick = () => {
       activeGroup = g;
-      attentionMode = false;
-      document.getElementById('btn-attention').classList.remove('active');
+      summaryAction = 'none';
+      setAttentionMode(false);
       buildGroupTabs();
       render();
     };
@@ -2636,20 +2760,73 @@ function buildGroupTabs() {
   });
 }
 
+function setAttentionMode(enabled) {
+  attentionMode = enabled;
+  const btn = document.getElementById('btn-attention');
+  if (btn) btn.classList.toggle('active', attentionMode);
+}
+
+function applySummaryAction(action) {
+  const trendFilter = document.getElementById('trend-filter');
+  const sortSelect = document.getElementById('sort-select');
+  const search = document.getElementById('search');
+
+  summaryAction = summaryAction === action ? 'none' : action;
+  const reset = summaryAction === 'none' || summaryAction === 'reset';
+
+  if (reset) {
+    if (trendFilter) trendFilter.value = 'all';
+    if (sortSelect) sortSelect.value = 'name';
+    if (search) search.value = '';
+    activeGroup = 'all';
+    setAttentionMode(false);
+    buildGroupTabs();
+    summaryAction = 'none';
+    render();
+    return;
+  }
+
+  if (summaryAction === 'up' && trendFilter) {
+    trendFilter.value = 'up';
+    setAttentionMode(false);
+  } else if (summaryAction === 'attention') {
+    if (trendFilter) trendFilter.value = 'all';
+    setAttentionMode(true);
+  } else if (summaryAction === 'avg-attendance' && sortSelect) {
+    sortSelect.value = 'attendance';
+    if (trendFilter) trendFilter.value = 'all';
+    setAttentionMode(false);
+  } else if (summaryAction === 'membership' && sortSelect) {
+    sortSelect.value = 'membership';
+    if (trendFilter) trendFilter.value = 'all';
+    setAttentionMode(false);
+  }
+
+  activeGroup = 'all';
+  buildGroupTabs();
+  render();
+}
+
 function buildSummary(data) {
-  const tab = currentTabLabel();
   const totalBase = data.reduce((s, d) => s + (Number(d.membership) || 0), 0);
   const up = data.filter(d => trendOf(d) === 'up').length;
   const attn = data.filter(needsAttention).length;
-  const avgRep = data.length ? data.reduce((s, d) => s + (Number(d.reporting_pct) || 0), 0) / data.length : 0;
+  const avgAttendance = data.length ? data.reduce((s, d) => s + (Number(d.avg_attendance) || 0), 0) / data.length : 0;
   const titleMetric = activeTab === 'overview' ? 'Groups' : activeTab === 'services' ? 'Services' : 'Cells';
-  document.getElementById('summary-bar').innerHTML = `
-    <div class="stat-pill"><div class="stat-dot" style="background:var(--gold)"></div><div><div class="stat-val">${data.length}</div><div class="stat-lbl">${titleMetric}</div></div></div>
-    <div class="stat-pill"><div class="stat-dot" style="background:#94a3b8"></div><div><div class="stat-val">${totalBase.toLocaleString()}</div><div class="stat-lbl">${secondaryMetricLabel(activeTab)}</div></div></div>
-    <div class="stat-pill"><div class="stat-dot" style="background:var(--green)"></div><div><div class="stat-val">${up}</div><div class="stat-lbl">Trending Up</div></div></div>
-    <div class="stat-pill"><div class="stat-dot" style="background:${avgRep>=80?'var(--green)':avgRep>=60?'var(--amber)':'var(--red)'}"></div><div><div class="stat-val">${avgRep.toFixed(0)}%</div><div class="stat-lbl">Avg Reporting</div></div></div>
-    <div class="stat-pill"><div class="stat-dot" style="background:var(--amber)"></div><div><div class="stat-val">${attn}</div><div class="stat-lbl">Need Attention</div></div></div>
+  const summaryBar = document.getElementById('summary-bar');
+  const setPillClass = action => `stat-pill clickable ${summaryAction === action ? 'active' : ''}`.trim();
+
+  summaryBar.innerHTML = `
+    <button class="${setPillClass('reset')}" data-action="reset"><div class="stat-dot" style="background:var(--gold)"></div><div><div class="stat-val">${data.length}</div><div class="stat-lbl">${titleMetric}</div></div></button>
+    <button class="${setPillClass('membership')}" data-action="membership"><div class="stat-dot" style="background:#94a3b8"></div><div><div class="stat-val">${totalBase.toLocaleString()}</div><div class="stat-lbl">${secondaryMetricLabel(activeTab)}</div></div></button>
+    <button class="${setPillClass('up')}" data-action="up"><div class="stat-dot" style="background:var(--green)"></div><div><div class="stat-val">${up}</div><div class="stat-lbl">Trending Up</div></div></button>
+    <button class="${setPillClass('avg-attendance')}" data-action="avg-attendance"><div class="stat-dot" style="background:#60a5fa"></div><div><div class="stat-val">${avgAttendance.toFixed(1)}</div><div class="stat-lbl">Avg Attendance</div></div></button>
+    <button class="${setPillClass('attention')}" data-action="attention"><div class="stat-dot" style="background:var(--amber)"></div><div><div class="stat-val">${attn}</div><div class="stat-lbl">Needs Attention</div></div></button>
   `;
+
+  summaryBar.querySelectorAll('[data-action]').forEach(el => {
+    el.addEventListener('click', () => applySummaryAction(el.getAttribute('data-action')));
+  });
 }
 
 function drawSparkline(canvas, weekly, trend) {
@@ -2683,7 +2860,7 @@ function buildCard(d) {
     ? `${escapeHtml(d.group)}`
     : `${escapeHtml(d.leader)}${d.sc_code ? ` <span class="sep">·</span><span class="sc">${escapeHtml(d.sc_code)}</span>` : ''}`;
 
-  const metric1Label = activeTab === 'overview' ? 'Cells' : secondaryMetricLabel(activeTab);
+  const metric1Label = activeTab === 'overview' ? overviewItemLabel(d) : secondaryMetricLabel(activeTab);
   const metric1Val = activeTab === 'overview' ? (d.item_count || 0) : d.membership;
 
   const card = document.createElement('div');
@@ -2716,7 +2893,7 @@ function buildCard(d) {
       <div class="mini-stat"><div class="val">${d.weekly.length}</div><div class="lbl">Reports</div></div>
     </div>
     ${activeTab === 'overview' && d.cells_needing_attention > 0
-      ? `<div class="card-alert">⚠ ${d.cells_needing_attention} cell${d.cells_needing_attention !== 1 ? 's' : ''} need attention</div>`
+      ? `<div class="card-alert">⚠ ${d.cells_needing_attention} ${overviewItemLabel(d).toLowerCase()} ${d.cells_needing_attention !== 1 ? 'items' : 'item'} need attention</div>`
       : d.missing_reports > 0
         ? `<div class="card-alert">⚠ ${d.missing_reports} unreported week${d.missing_reports > 1 ? 's' : ''}</div>`
         : ''}
@@ -2731,51 +2908,26 @@ function buildCard(d) {
   return card;
 }
 
-function buildInsights(d) {
-  const ep = engagePct(d);
-  const trend = trendOf(d);
-  const g = d.growth;
-  const rows = [];
-
-  if (activeTab === 'overview' && d.cells_needing_attention > 0) {
-    rows.push({ i: '⚠️', t: `${d.cells_needing_attention} cell${d.cells_needing_attention !== 1 ? 's' : ''} in this group need attention.` });
-  }
-  if (ep !== null && ep < 15) rows.push({ i: '📌', t: `Engagement index is ${ep.toFixed(0)}%.` });
-  if (d.reporting_pct < 50) rows.push({ i: '📋', t: `Reporting is ${Math.round(d.reporting_pct)}%, below target.` });
-  if (trend === 'up' && g && g.wowTotal > 20) rows.push({ i: '🚀', t: `Attendance grew ${g.wowTotal.toFixed(0)}% from first to last report.` });
-  if (trend === 'down' && g && g.wowTotal !== null && g.wowTotal < -20) rows.push({ i: '📉', t: `Attendance dropped ${Math.abs(g.wowTotal).toFixed(0)}% from first to last report.` });
-  if (!d.weekly.length) rows.push({ i: '📭', t: `No attendance data submitted for this ${activeTab === 'overview' ? 'group' : activeTab === 'services' ? 'service' : 'cell'}.` });
-  return rows;
-}
-
 function openModal(d) {
   const trend = trendOf(d);
-  const ep = engagePct(d);
   const g = d.growth;
   const trendCol = trend === 'up' ? 'var(--green)' : trend === 'down' ? 'var(--red)' : 'var(--text-dim)';
   const wowTotal = g && g.wowTotal !== null ? (g.wowTotal >= 0 ? '+' : '') + g.wowTotal.toFixed(1) + '%' : '—';
 
   document.getElementById('modal-title').textContent = d.name;
   document.getElementById('modal-sub').textContent = activeTab === 'overview'
-    ? `${d.group} · ${d.item_count || 0} cells · ${d.service_count || 0} services`
+    ? `${d.group} · ${d.item_count || 0} ${overviewItemLabel(d).toLowerCase()}`
     : `${d.leader} · ${d.group}${d.sc_code ? ' · ' + d.sc_code : ''}`;
 
-  const firstLabel = activeTab === 'overview' ? 'Cells' : secondaryMetricLabel(activeTab);
+  const firstLabel = activeTab === 'overview' ? overviewItemLabel(d) : secondaryMetricLabel(activeTab);
   const firstVal = activeTab === 'overview' ? (d.item_count || 0) : d.membership;
 
   document.getElementById('modal-kpis').innerHTML = `
     <div class="modal-kpi"><div class="val">${firstVal}</div><div class="lbl">${firstLabel}</div></div>
     <div class="modal-kpi"><div class="val">${d.avg_attendance > 0 ? d.avg_attendance.toFixed(1) : '0'}</div><div class="lbl">Avg Att.</div></div>
-    <div class="modal-kpi"><div class="val">${ep !== null ? ep.toFixed(0) + '%' : '—'}</div><div class="lbl">${activeTab === 'overview' ? 'Index' : 'Engagement'}</div></div>
+    <div class="modal-kpi"><div class="val">${(Number(d.reporting_pct) || 0).toFixed(0)}%</div><div class="lbl">Reporting</div></div>
     <div class="modal-kpi"><div class="val" style="color:${trendCol}">${wowTotal}</div><div class="lbl">Overall Growth</div></div>
   `;
-
-  const insights = buildInsights(d);
-  document.getElementById('modal-insights').innerHTML = insights.length ? `
-    <div class="modal-section-lbl">Insights</div>
-    <div style="display:flex;flex-direction:column;gap:6px">
-      ${insights.map(r => `<div class="insight-row"><span class="insight-icon">${r.i}</span><span>${escapeHtml(r.t)}</span></div>`).join('')}
-    </div>` : '';
 
   if (modalChart) { modalChart.destroy(); modalChart = null; }
   const cvs = document.getElementById('modal-chart');
@@ -2868,48 +3020,37 @@ function momChip(curr, prev) {
   return `<span class="mom-chip ${cls}">${d > 0 ? '+' : ''}${p || d.toFixed(1)}</span>`;
 }
 
-function renderMonthly() {
-  monthlyCharts.forEach(c => c.destroy()); monthlyCharts = [];
-  const wrap = document.getElementById('monthly-wrap');
-  wrap.innerHTML = '';
-  const data = currentItems();
+function renderMonthlyForTab(tabKey, heading, wrap) {
+  const data = normalizeItems(tabKey);
   const months = allMonths(data);
-  if (!months.length) {
-    wrap.innerHTML = '<div class="empty-state"><p>No monthly data yet.</p></div>';
-    return;
-  }
+  if (!months.length || !data.length) return false;
 
-  const rowsSource = activeTab === 'overview'
-    ? data
-    : currentGroups().map(grp => {
-        const groupItems = data.filter(d => d.group === grp);
-        const stats = monthlyStats(groupItems);
-        return {
-          name: grp,
-          group: grp,
-          membership: groupItems.reduce((s, d) => s + (Number(d.membership) || 0), 0),
-          item_count: groupItems.length,
-          stats,
-          needs: groupItems.filter(needsAttention).length
-        };
-      });
+  const groups = [...new Set(data.map(d => d.group).filter(Boolean))];
+  const rowsSource = groups.map(grp => {
+    const groupItems = data.filter(d => d.group === grp);
+    return {
+      name: grp,
+      group: grp,
+      membership: groupItems.reduce((s, d) => s + (Number(d.membership) || 0), 0),
+      item_count: groupItems.length,
+      stats: monthlyStats(groupItems),
+      needs: groupItems.filter(d => needsAttentionForTab(d, tabKey)).length
+    };
+  });
 
   const thM = months.map(m => `<th class="month-hdr" colspan="2">${m}</th>`).join('');
   const thS = months.map(() => `<th class="sub-hdr">Avg</th><th class="sub-hdr">Total</th>`).join('');
+  const itemLabel = tabKey === 'services' ? 'services' : 'cells';
   const bodyRows = rowsSource.map(row => {
-    const stats = activeTab === 'overview' ? monthlyStats([row]) : row.stats;
-    const prevMap = {};
     const cells = months.map((m, mi) => {
-      const s = stats.find(x => x.month === m);
+      const s = row.stats.find(x => x.month === m);
       if (!s) return `<td class="empty num">—</td><td class="empty num">—</td>`;
-      const prev = mi > 0 ? stats.find(x => x.month === months[mi - 1]) : null;
+      const prev = mi > 0 ? row.stats.find(x => x.month === months[mi - 1]) : null;
       return `<td class="num">${s.avg.toFixed(1)}${prev ? momChip(s.avg, prev.avg) : ''}</td><td class="num">${s.total}</td>`;
     }).join('');
-    const sub = activeTab === 'overview'
-      ? `${row.item_count || 0} cells · ${row.service_count || 0} services`
-      : `${row.item_count || 0} ${activeTab === 'services' ? 'services' : 'items'} · ${row.membership || 0} ${secondaryMetricLabel(activeTab).toLowerCase()}`;
-    const attnBadge = (activeTab === 'overview' ? row.cells_needing_attention : row.needs) > 0
-      ? `<span class="group-meta-pill warn" style="margin-left:6px;font-size:9.5px">⚠ ${activeTab === 'overview' ? row.cells_needing_attention : row.needs}</span>`
+    const sub = `${row.item_count || 0} ${itemLabel} · ${row.membership || 0} ${secondaryMetricLabel(tabKey).toLowerCase()}`;
+    const attnBadge = row.needs > 0
+      ? `<span class="group-meta-pill warn" style="margin-left:6px;font-size:9.5px">⚠ ${row.needs}</span>`
       : '';
     return `<tr><td class="row-name">${escapeHtml(row.name)}${attnBadge}<div style="font-size:10.5px;font-weight:400;color:var(--text-dim);margin-top:2px">${sub}</div></td>${cells}</tr>`;
   }).join('');
@@ -2917,11 +3058,11 @@ function renderMonthly() {
   const section = document.createElement('div');
   section.className = 'monthly-section';
   section.innerHTML = `
-    <div class="monthly-heading">${currentTabLabel()} Attendance — Month on Month</div>
+    <div class="monthly-heading">${heading} Attendance — Month on Month</div>
     <div class="monthly-table-scroll">
       <table class="monthly-table">
         <thead>
-          <tr><th rowspan="2" style="min-width:190px">${activeTab === 'overview' ? 'Group' : 'Group'}</th>${thM}</tr>
+          <tr><th rowspan="2" style="min-width:190px">Group</th>${thM}</tr>
           <tr>${thS}</tr>
         </thead>
         <tbody>${bodyRows}</tbody>
@@ -2929,48 +3070,45 @@ function renderMonthly() {
     </div>`;
   wrap.appendChild(section);
 
+  const chartKey = `${tabKey}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const avgCanvasId = `mc-avg-${chartKey}`;
+  const totalCanvasId = `mc-total-${chartKey}`;
   const chartsEl = document.createElement('div');
   chartsEl.innerHTML = `
-    <div class="monthly-heading">Trend Visualisation</div>
+    <div class="monthly-heading">${heading} Trend Visualisation</div>
     <div class="monthly-charts">
       <div class="monthly-chart-card">
-        <div class="monthly-chart-title">${currentTabLabel()} Avg Attendance by Month</div>
-        <div class="monthly-chart-wrap"><canvas id="mc-cell"></canvas></div>
+        <div class="monthly-chart-title">${heading} Avg Attendance by Month</div>
+        <div class="monthly-chart-wrap"><canvas id="${avgCanvasId}"></canvas></div>
       </div>
       <div class="monthly-chart-card">
-        <div class="monthly-chart-title">${currentTabLabel()} Total Attendance by Month</div>
-        <div class="monthly-chart-wrap"><canvas id="mc-total"></canvas></div>
+        <div class="monthly-chart-title">${heading} Total Attendance by Month</div>
+        <div class="monthly-chart-wrap"><canvas id="${totalCanvasId}"></canvas></div>
       </div>
     </div>`;
   wrap.appendChild(chartsEl);
 
-  const chartRows = rowsSource;
-  const avgDs = chartRows.map((row, i) => {
-    const stats = activeTab === 'overview' ? monthlyStats([row]) : row.stats;
-    return {
-      label: row.name,
-      tension: 0.3, pointRadius: 4, borderWidth: 2, fill: false, spanGaps: true,
-      borderColor: GROUP_COLORS[i % GROUP_COLORS.length],
-      backgroundColor: GROUP_COLORS[i % GROUP_COLORS.length] + '22',
-      data: months.map(m => {
-        const s = stats.find(x => x.month === m);
-        return s ? parseFloat(s.avg.toFixed(1)) : null;
-      })
-    };
-  });
-  const totDs = chartRows.map((row, i) => {
-    const stats = activeTab === 'overview' ? monthlyStats([row]) : row.stats;
-    return {
-      label: row.name,
-      tension: 0.3, pointRadius: 4, borderWidth: 2, fill: false, spanGaps: true,
-      borderColor: GROUP_COLORS[i % GROUP_COLORS.length],
-      backgroundColor: GROUP_COLORS[i % GROUP_COLORS.length] + '22',
-      data: months.map(m => {
-        const s = stats.find(x => x.month === m);
-        return s ? s.total : null;
-      })
-    };
-  });
+  const avgDs = rowsSource.map((row, i) => ({
+    label: row.name,
+    tension: 0.3, pointRadius: 4, borderWidth: 2, fill: false, spanGaps: true,
+    borderColor: GROUP_COLORS[i % GROUP_COLORS.length],
+    backgroundColor: GROUP_COLORS[i % GROUP_COLORS.length] + '22',
+    data: months.map(m => {
+      const s = row.stats.find(x => x.month === m);
+      return s ? parseFloat(s.avg.toFixed(1)) : null;
+    })
+  }));
+
+  const totDs = rowsSource.map((row, i) => ({
+    label: row.name,
+    tension: 0.3, pointRadius: 4, borderWidth: 2, fill: false, spanGaps: true,
+    borderColor: GROUP_COLORS[i % GROUP_COLORS.length],
+    backgroundColor: GROUP_COLORS[i % GROUP_COLORS.length] + '22',
+    data: months.map(m => {
+      const s = row.stats.find(x => x.month === m);
+      return s ? s.total : null;
+    })
+  }));
 
   const chartOpts = {
     responsive: true, maintainAspectRatio: false,
@@ -2985,9 +3123,30 @@ function renderMonthly() {
   };
 
   setTimeout(() => {
-    monthlyCharts.push(new Chart(document.getElementById('mc-cell'), { type: 'line', data: { labels: months, datasets: avgDs }, options: chartOpts }));
-    monthlyCharts.push(new Chart(document.getElementById('mc-total'), { type: 'bar', data: { labels: months, datasets: totDs }, options: chartOpts }));
+    const avgCanvas = document.getElementById(avgCanvasId);
+    const totalCanvas = document.getElementById(totalCanvasId);
+    if (avgCanvas) monthlyCharts.push(new Chart(avgCanvas, { type: 'line', data: { labels: months, datasets: avgDs }, options: chartOpts }));
+    if (totalCanvas) monthlyCharts.push(new Chart(totalCanvas, { type: 'bar', data: { labels: months, datasets: totDs }, options: chartOpts }));
   }, 50);
+
+  return true;
+}
+
+function renderMonthly() {
+  monthlyCharts.forEach(c => c.destroy()); monthlyCharts = [];
+  const wrap = document.getElementById('monthly-wrap');
+  wrap.innerHTML = '';
+
+  if (activeTab === 'overview') {
+    const hasCells = renderMonthlyForTab('cells', 'Cells', wrap);
+    const hasServices = renderMonthlyForTab('services', 'Services', wrap);
+    if (!hasCells && !hasServices) wrap.innerHTML = '<div class="empty-state"><p>No monthly data yet.</p></div>';
+    return;
+  }
+
+  if (!renderMonthlyForTab(activeTab, currentTabLabel(), wrap)) {
+    wrap.innerHTML = '<div class="empty-state"><p>No monthly data yet.</p></div>';
+  }
 }
 
 function switchView(v) {
@@ -2996,10 +3155,10 @@ function switchView(v) {
   const isCells = v === 'cells';
   document.getElementById('grid-wrap').style.display = isCells ? '' : 'none';
   document.getElementById('monthly-wrap').style.display = isCells ? 'none' : '';
-  document.getElementById('group-tabs').style.display = '';
   ['search','sort-select','trend-filter','btn-attention'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = isCells ? '' : 'none';
   });
+  buildGroupTabs();
   if (isCells) { monthlyCharts.forEach(c => c.destroy()); monthlyCharts = []; render(); }
   else renderMonthly();
 }
@@ -3042,8 +3201,9 @@ function render() {
     return;
   }
 
+  const summaryData = currentItems().filter(d => activeGroup === 'all' || d.group === activeGroup);
   const filtered = getFiltered();
-  buildSummary(filtered);
+  buildSummary(summaryData);
 
   const grpLabel = activeGroup === 'all' ? 'All Groups' : activeGroup;
   document.getElementById('header-sub').textContent =
@@ -3051,17 +3211,6 @@ function render() {
 
   const wrap = document.getElementById('grid-wrap');
   wrap.innerHTML = '';
-
-  if (!attentionMode) {
-    const attnList = filtered.filter(needsAttention);
-    if (attnList.length) {
-      const banner = document.createElement('div');
-      banner.className = 'attention-banner';
-      const names = attnList.slice(0, 3).map(d => d.name).join(', ');
-      banner.innerHTML = `⚠ <strong>${attnList.length} item${attnList.length !== 1 ? 's' : ''}</strong> need attention · <span class="names">${escapeHtml(names)}${attnList.length > 3 ? ' and ' + (attnList.length - 3) + ' more' : ''}</span>`;
-      wrap.appendChild(banner);
-    }
-  }
 
   if (!filtered.length) {
     wrap.innerHTML += `<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><p>No ${currentTabLabel().toLowerCase()} items match your filters.</p></div>`;
@@ -3148,13 +3297,22 @@ async function loadData() {
   }
 }
 
-document.getElementById('search').addEventListener('input', render);
-document.getElementById('sort-select').addEventListener('change', render);
-document.getElementById('trend-filter').addEventListener('change', render);
+document.getElementById('search').addEventListener('input', () => {
+  summaryAction = 'none';
+  render();
+});
+document.getElementById('sort-select').addEventListener('change', () => {
+  summaryAction = 'none';
+  render();
+});
+document.getElementById('trend-filter').addEventListener('change', () => {
+  summaryAction = 'none';
+  render();
+});
 
 document.getElementById('btn-attention').addEventListener('click', function() {
-  attentionMode = !attentionMode;
-  this.classList.toggle('active', attentionMode);
+  summaryAction = 'none';
+  setAttentionMode(!attentionMode);
   activeGroup = 'all';
   buildGroupTabs();
   render();

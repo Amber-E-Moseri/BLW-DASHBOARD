@@ -383,6 +383,19 @@
       font-weight: 300;
     }
 
+    .insight-row {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--text-dim);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .insight-up { color: var(--green); font-weight: 600; }
+    .insight-down { color: var(--red); font-weight: 600; }
+    .insight-flat { color: var(--muted); font-weight: 600; }
+
     .trend-badge {
       flex-shrink: 0;
       display: flex;
@@ -398,6 +411,15 @@
     .trend-badge.up { background: rgba(38,222,129,0.12); color: var(--green); }
     .trend-badge.down { background: rgba(252,92,101,0.12); color: var(--red); }
     .trend-badge.flat { background: rgba(107,114,128,0.15); color: var(--muted); }
+    .trend-pct {
+      font-size: 10px;
+      font-weight: 500;
+      opacity: 0.85;
+      margin-left: 4px;
+    }
+    .trend-pct.lowconf {
+      opacity: 0.55;
+    }
 
     .sparkline-wrap {
       height: 44px;
@@ -648,7 +670,7 @@
   <header>
     <div class="logo-area">
       <div class="logo-title-row">
-        <img src="canada_sr.png" alt="BLW Canada Logo" class="logo-mark" />
+        <img src="canada_sr (1).png" alt="BLW Canada Logo" class="logo-mark" />
         <h1>BLW Canada Dashboard</h1>
       </div>
       <p>Cell attendance, services, trends and reporting metrics</p>
@@ -713,7 +735,6 @@
         <div class="def-item"><strong>Reporting %:</strong> share of expected reports actually submitted.</div>
         <div class="def-item"><strong>Missing Reports:</strong> expected reports with no submitted attendance value.</div>
         <div class="def-item"><strong>Needs Attention:</strong> low reporting, missing reports, or zero-attendance risk.</div>
-        <div class="def-item"><strong>3M Avg:</strong> average attendance over the latest three reported periods.</div>
       </div>
     </details>
   </section>
@@ -766,6 +787,7 @@
     let currentTopTab = 'overview';
     let activeGroup = 'all';
     let modalChart = null;
+    let dashboardInitialized = false;
 
     function num(v) {
       const n = Number(v);
@@ -821,6 +843,42 @@
       return `${sign}${Math.round(n)}%`;
     }
 
+    function getMonthPctMeta(series) {
+      const clean = validSeriesValues(series);
+      if (clean.length < 2) return { hasData: false, pct: null, fromZero: false };
+      const prev = clean[clean.length - 2];
+      const curr = clean[clean.length - 1];
+      const fromZero = prev === 0 && curr > 0;
+      const pct = prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
+      return { hasData: true, pct, fromZero };
+    }
+
+    function getThreeMonthPctMeta(series) {
+      const vals = validSeriesValues(series);
+      if (vals.length < 2) return { hasData: false, pct: null, fromZero: false };
+      if (vals.length >= 6) {
+        const prev3 = vals.slice(-6, -3);
+        const last3 = vals.slice(-3);
+        const prevAvg = avg(prev3);
+        const lastAvg = avg(last3);
+        const fromZero = prevAvg === 0 && lastAvg > 0;
+        const pct = prevAvg === 0 ? (lastAvg > 0 ? 100 : 0) : ((lastAvg - prevAvg) / prevAvg) * 100;
+        return { hasData: true, pct, fromZero };
+      }
+      const prev = vals[vals.length - 2];
+      const curr = vals[vals.length - 1];
+      const fromZero = prev === 0 && curr > 0;
+      const pct = prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
+      return { hasData: true, pct, fromZero };
+    }
+
+    function formatSecondaryPct(meta, lowConfidence = false) {
+      if (!meta?.hasData) return 'n/a';
+      if (meta.fromZero) return lowConfidence ? 'from 0 (low conf)' : 'from 0';
+      const pct = formatPct(meta.pct);
+      return lowConfidence ? `${pct} (low conf)` : pct;
+    }
+
     function lastN(arr, n) {
       return arr.slice(Math.max(arr.length - n, 0));
     }
@@ -839,6 +897,19 @@
         .filter(v => v !== null && v !== undefined && v !== '')
         .map(num)
         .filter(v => Number.isFinite(v));
+    }
+
+    function isMissingAttendanceValue(v) {
+      return v === null || v === undefined || v === '' || v === 'N/A' || v === 'no report';
+    }
+
+    function mapTrendLabel(direction, confidence = 'high') {
+      if (direction === 'new') return 'New';
+      if (direction === 'up') return confidence === 'low' ? 'Emerging Growth' : 'Growing';
+      if (direction === 'down') return 'Declining';
+      if (direction === 'flat') return confidence === 'low' ? 'Insufficient data' : 'Stable';
+      if (direction === 'volatile') return 'Volatile';
+      return 'Stable';
     }
 
     function calcLast3MonthTrendPct(series) {
@@ -925,7 +996,7 @@
         return item.spark.map((v, i) => ({
           week: item.sparkLabels?.[i] || `P${i + 1}`,
           attendance: v,
-          missing: v == null || v === ''
+          missing: isMissingAttendanceValue(v)
         }));
       }
       return [];
@@ -982,7 +1053,7 @@
           }
           const cell = bucket._weeks.get(lbl);
           cell.expected += 1;
-          if (w.missing !== true && w.attendance !== null && w.attendance !== undefined && w.attendance !== '') {
+          if (w.missing !== true && !isMissingAttendanceValue(w.attendance)) {
             cell.reported += 1;
             cell.total += num(w.attendance);
           }
@@ -1003,15 +1074,25 @@
         }, { expected: 0, reported: 0 });
 
         const reportingPct = counts.expected ? (counts.reported / counts.expected) * 100 : 0;
-        const trend = calcTrendFromSeries(series, sectionType);
+        const seriesPerReporter = labels.map(lbl => {
+          const w = bucket._weeks.get(lbl);
+          return w && w.reported > 0 ? w.total / w.reported : null;
+        });
+        const trend = calcTrendFromSeries(seriesPerReporter, sectionType);
         const trendDirection = trend.direction;
         const last3MonthsAvg = avgLastN(series, 3);
         const fullYearTotal = sumLastN(series, 12);
+        const missingRatio = counts.expected ? (counts.expected - counts.reported) / counts.expected : 0;
+        const weekObjs = labels.map(lbl => bucket._weeks.get(lbl));
+        const recentWeeks = weekObjs.slice(-6);
+        const recentExpected = sum(recentWeeks.map(w => num(w?.expected)));
+        const recentReported = sum(recentWeeks.map(w => num(w?.reported)));
+        const recentReportingPct = recentExpected ? (recentReported / recentExpected) * 100 : 100;
 
         let monthOnMonthPct = 0;
-        if (series.length >= 2) {
-          const prev = num(series[series.length - 2]);
-          const curr = num(series[series.length - 1]);
+        if (seriesPerReporter.length >= 2) {
+          const prev = num(seriesPerReporter[seriesPerReporter.length - 2]);
+          const curr = num(seriesPerReporter[seriesPerReporter.length - 1]);
           monthOnMonthPct = prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
         }
 
@@ -1020,7 +1101,9 @@
           labels,
           series,
           reporting_pct: clamp(reportingPct, 0, 100),
-          hasMissingReports: counts.reported < counts.expected,
+          hasMissingReports: missingRatio > 0,
+          missingRatio: clamp(missingRatio, 0, 1),
+          recentReportingPct: clamp(recentReportingPct, 0, 100),
           monthOnMonthPct,
           last3MonthsAvg,
           fullYearTotal,
@@ -1046,7 +1129,7 @@
 
           const cell = weeks.get(lbl);
           cell.expected += 1;
-          if (w.missing !== true && w.attendance !== null && w.attendance !== undefined && w.attendance !== '') {
+          if (w.missing !== true && !isMissingAttendanceValue(w.attendance)) {
             cell.reported += 1;
             cell.total += num(w.attendance);
           }
@@ -1065,14 +1148,24 @@
         return acc;
       }, { expected: 0, reported: 0 });
 
-      const trend = calcTrendFromSeries(series, sectionType);
+      const seriesPerReporter = labels.map(lbl => {
+        const w = weeks.get(lbl);
+        return w && w.reported > 0 ? w.total / w.reported : null;
+      });
+      const trend = calcTrendFromSeries(seriesPerReporter, sectionType);
       const trendDirection = trend.direction;
       const totalNeedsAttention = (subgroupRows || []).reduce((s, r) => s + num(r.needs_attention_count), 0);
+      const missingRatio = counts.expected ? (counts.expected - counts.reported) / counts.expected : 0;
+      const weekObjs = labels.map(lbl => weeks.get(lbl));
+      const recentWeeks = weekObjs.slice(-6);
+      const recentExpected = sum(recentWeeks.map(w => num(w?.expected)));
+      const recentReported = sum(recentWeeks.map(w => num(w?.reported)));
+      const recentReportingPct = recentExpected ? (recentReported / recentExpected) * 100 : 100;
 
       let monthOnMonthPct = 0;
-      if (series.length >= 2) {
-        const prev = num(series[series.length - 2]);
-        const curr = num(series[series.length - 1]);
+      if (seriesPerReporter.length >= 2) {
+        const prev = num(seriesPerReporter[seriesPerReporter.length - 2]);
+        const curr = num(seriesPerReporter[seriesPerReporter.length - 1]);
         monthOnMonthPct = prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
       }
 
@@ -1086,7 +1179,9 @@
         reporting_pct: clamp(counts.expected ? (counts.reported / counts.expected) * 100 : 0, 0, 100),
         membership: sectionType === 'cells' ? (subgroupRows || []).reduce((s, r) => s + num(r.membership), 0) : 0,
         needs_attention_count: totalNeedsAttention,
-        hasMissingReports: counts.reported < counts.expected,
+        hasMissingReports: missingRatio > 0,
+        missingRatio: clamp(missingRatio, 0, 1),
+        recentReportingPct: clamp(recentReportingPct, 0, 100),
         isMonthlyData: false,
         monthOnMonthPct,
         last3MonthsAvg: avgLastN(series, 3),
@@ -1100,7 +1195,13 @@
     // CELLS: Growth requires sustained movement, not a bounce-back after a dip.
     function calcTrendForCells(series) {
       if (!Array.isArray(series) || series.length < 2) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
+        return { direction: 'new', pct: 0, classification: 'New', confidence: 'insufficient' };
+      }
+
+      const recent3 = series.slice(-3);
+      const hasRecentReport = recent3.some(v => v !== null && v !== undefined && v !== '' && Number.isFinite(num(v)));
+      if (!hasRecentReport) {
+        return { direction: 'flat', pct: 0, classification: 'Insufficient data', confidence: 'insufficient', tags: [] };
       }
 
       const totalPoints = series.length;
@@ -1109,16 +1210,18 @@
       const missingCount = Math.max(totalPoints - validCount, 0);
       const hasMissing = missingCount > 0;
 
-      if (validCount < 4) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
+      if (validCount < 3) {
+        return { direction: 'new', pct: 0, classification: 'New', confidence: 'insufficient' };
       }
+
+      const confidence = validCount === 3 ? 'low' : 'high';
 
       const windowSize = validCount >= 6 ? 3 : 2;
       const prevWindow = clean.slice(-(windowSize * 2), -windowSize);
       const latestWindow = clean.slice(-windowSize);
 
       if (!prevWindow.length || !latestWindow.length) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
+        return { direction: 'flat', pct: 0, classification: mapTrendLabel('flat', confidence), confidence };
       }
 
       const prevAvg = avg(prevWindow);
@@ -1176,14 +1279,29 @@
         lastAvg >= baselineAvg * 0.92 &&
         lastAvg <= baselineAvg * 1.12;
       const isRecovery = hadAbnormalDip && returnedNearBaseline;
+      const isPartialRecovery = hadAbnormalDip && !returnedNearBaseline && lastAvg >= baselineAvg * 0.70;
+
+      const first4 = clean.length >= 4 ? clean.slice(0, 4) : clean;
+      const last4 = clean.length >= 4 ? clean.slice(-4) : clean;
+      const structuralDecline =
+        clean.length >= 6 &&
+        avg(first4) > 0 &&
+        avg(last4) < avg(first4) * 0.7;
 
       let direction = 'flat';
-      let classification = 'Flat';
+      let classification = mapTrendLabel('flat', confidence);
+      const tags = [];
+      const latest = clean[clean.length - 1];
+      const prevLatest = clean.length >= 2 ? clean[clean.length - 2] : 0;
+      const sharpDrop = prevLatest > 0 && latest <= prevLatest * 0.5;
 
-      if (consistentRecentDecline) {
+      if (structuralDecline) {
         direction = 'down';
         classification = 'Declining';
-      } else if (swingRatio > 0.42 && directionBias < 0.35 && alternation >= 2) {
+      } else if (consistentRecentDecline) {
+        direction = 'down';
+        classification = 'Declining';
+      } else if (swingRatio > 0.25 && directionBias < 0.35 && alternation >= 2) {
         direction = 'volatile';
         classification = 'Volatile';
       } else if (pctChange <= -trendThreshold && downMoves >= Math.max(1, Math.floor(moveCount / 2))) {
@@ -1192,6 +1310,9 @@
       } else if (isRecovery) {
         direction = 'flat';
         classification = 'Recovered';
+      } else if (isPartialRecovery) {
+        direction = 'flat';
+        classification = 'Partial Recovery';
       } else if (
         pctChange >= trendThreshold &&
         lastAvg > prevAvg &&
@@ -1200,96 +1321,178 @@
         !recentDirectionIsDown &&
         !isRecovery
       ) {
-        direction = hasMissing ? 'emerging' : 'up';
-        classification = hasMissing ? 'Emerging Growth' : 'Growing';
+        direction = 'up';
+        classification = mapTrendLabel('up', hasMissing || confidence === 'low' ? 'low' : 'high');
       } else if (pctChange > 0.5 && lastAvg > prevAvg) {
-        direction = 'emerging';
-        classification = 'Emerging Growth';
+        direction = 'up';
+        classification = mapTrendLabel('up', 'low');
       } else if (Math.abs(pctChange) <= trendThreshold) {
         direction = 'flat';
-        classification = 'Flat';
+        classification = mapTrendLabel('flat', confidence);
       }
+
+      // Sharp drop should override soft outcomes, but never a strong existing decline.
+      if (sharpDrop && classification !== 'Declining') {
+        direction = 'down';
+        classification = 'Declining';
+      }
+
+      if (sharpDrop) tags.push('Sharp Drop');
 
       return {
         direction,
         pct: pctChange,
-        classification
+        classification,
+        confidence,
+        tags
       };
     }
 
     // SERVICES: Simplified trend logic (rolling average only)
     function calcTrendForServices(series) {
       if (!Array.isArray(series) || series.length < 2) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
+        return { direction: 'new', pct: 0, classification: 'New', confidence: 'insufficient', tags: [] };
+      }
+
+      const recent3 = series.slice(-3);
+      const hasRecentReport = recent3.some(v => v !== null && v !== undefined && v !== '' && Number.isFinite(num(v)));
+      if (!hasRecentReport) {
+        return { direction: 'flat', pct: 0, classification: 'Insufficient data', confidence: 'insufficient', tags: [] };
       }
 
       const clean = validSeriesValues(series);
       if (clean.length < 2) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
+        return { direction: 'new', pct: 0, classification: 'New', confidence: 'insufficient', tags: [] };
       }
 
-      const windowSize = clean.length >= 6 ? 3 : 2;
-      const prevWindow = clean.slice(-(windowSize * 2), -windowSize);
-      const latestWindow = clean.slice(-windowSize);
-      if (!prevWindow.length || !latestWindow.length) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
-      }
-
-      const prevAvg = avg(prevWindow);
-      const lastAvg = avg(latestWindow);
-      const pctChange = prevAvg === 0 ? (lastAvg > 0 ? 100 : 0) : ((lastAvg - prevAvg) / prevAvg) * 100;
-
-      // Recent direction override: if latest 2-3 valid points are consistently dropping,
-      // classify as declining regardless of broader history.
-      const recentDirectionWindow = clean.length >= 3 ? clean.slice(-3) : clean.slice(-2);
+      const recentDirectionWindow = clean.length >= 4 ? clean.slice(-4) : clean.slice(-3);
       const recentDirectionDiffs = [];
       for (let i = 1; i < recentDirectionWindow.length; i++) {
         recentDirectionDiffs.push(recentDirectionWindow[i] - recentDirectionWindow[i - 1]);
       }
-      const consistentRecentDecline =
+      const recentPctDrops = [];
+      for (let i = 1; i < recentDirectionWindow.length; i++) {
+        const prev = recentDirectionWindow[i - 1];
+        const curr = recentDirectionWindow[i];
+        const dropPct = prev > 0 ? ((prev - curr) / prev) * 100 : 0;
+        recentPctDrops.push(dropPct);
+      }
+
+      const threeConsecutiveDeclines =
+        recentDirectionDiffs.length >= 3 &&
+        recentDirectionDiffs.slice(-3).every(d => d < 0);
+      const twoStrongDeclines =
+        recentDirectionDiffs.length >= 2 &&
+        recentDirectionDiffs.slice(-2).every(d => d < 0) &&
+        recentPctDrops.slice(-2).every(p => p > 10);
+
+      const consistentRecentGrowth =
         recentDirectionDiffs.length > 0 &&
-        recentDirectionDiffs.every(d => d <= 0) &&
-        recentDirectionDiffs.some(d => d < 0);
+        recentDirectionDiffs.every(d => d >= 0) &&
+        recentDirectionDiffs.some(d => d > 0);
+
+      const recentFirst = recentDirectionWindow[0];
+      const recentLast = recentDirectionWindow[recentDirectionWindow.length - 1];
+      const pctChange = recentFirst === 0 ? (recentLast > 0 ? 100 : 0) : ((recentLast - recentFirst) / recentFirst) * 100;
+
+      const recentMax = Math.max(...recentDirectionWindow);
+      const recentMin = Math.min(...recentDirectionWindow);
+      const recentRangeRatio = (recentMax - recentMin) / Math.max(avg(recentDirectionWindow), 1);
+      let alternation = 0;
+      for (let i = 1; i < recentDirectionDiffs.length; i++) {
+        if ((recentDirectionDiffs[i] > 0 && recentDirectionDiffs[i - 1] < 0) || (recentDirectionDiffs[i] < 0 && recentDirectionDiffs[i - 1] > 0)) {
+          alternation++;
+        }
+      }
+      const isVolatile = recentRangeRatio >= 0.35 && alternation >= 1;
+      const hasStrongGrowthEvidence = clean.length >= 3;
+      const hasStrongDeclineEvidence = clean.length >= 2;
+      const latest = clean[clean.length - 1];
+      const prevLatest = clean.length >= 2 ? clean[clean.length - 2] : 0;
+      const serviceSharpDropFactor = prevLatest < 10 ? 0.5 : 0.75;
+      const sharpDrop = prevLatest > 0 && latest <= prevLatest * serviceSharpDropFactor;
+      const seriesMean = avg(clean);
+      const seriesMax = Math.max(...clean);
+      const seriesMin = Math.min(...clean);
+      const variationRatio = seriesMean > 0 ? (seriesMax - seriesMin) / seriesMean : 0;
+      const newHigh = latest === seriesMax && variationRatio > 0.1;
+      const baselinePool = clean.length >= 6 ? clean.slice(-6, -2) : clean.slice(0, -2);
+      const baselineAvg = baselinePool.length ? avg(baselinePool) : 0;
+      const recentTwo = clean.slice(-2);
+      const recentLift = recentTwo.length === 2 && recentTwo[1] > recentTwo[0];
+      const hadDip = baselineAvg > 0 && Math.min(...baselinePool) <= baselineAvg * 0.8;
+      const isRecovered = hadDip && recentLift && recentTwo[1] >= baselineAvg * 0.9;
+      const isRecovering = hadDip && recentLift && recentTwo[1] >= baselineAvg * 0.75 && recentTwo[1] < baselineAvg * 0.9;
 
       let direction = 'flat';
-      let classification = 'Flat';
+      let classification = mapTrendLabel('flat', clean.length === 3 ? 'low' : 'high');
+      const confidence = clean.length === 3 ? 'low' : 'high';
+      const tags = [];
 
-      if (consistentRecentDecline) {
+      if (hasStrongDeclineEvidence && (threeConsecutiveDeclines || twoStrongDeclines)) {
         direction = 'down';
         classification = 'Declining';
-      } else if (pctChange > 5) {
+      } else if (isVolatile) {
+        direction = 'volatile';
+        classification = 'Volatile';
+      } else if (isRecovered) {
+        direction = 'flat';
+        classification = 'Recovered';
+      } else if (isRecovering) {
+        direction = 'flat';
+        classification = 'Recovering';
+      } else if (hasStrongGrowthEvidence && consistentRecentGrowth && pctChange >= 9) {
         direction = 'up';
-        classification = 'Growing';
-      } else if (pctChange < -5) {
+        classification = mapTrendLabel('up', confidence);
+      } else if (Math.abs(pctChange) < 9) {
+        direction = 'flat';
+        classification = mapTrendLabel('flat', confidence);
+      }
+
+      // Sharp drop should override soft outcomes, but never a strong existing decline.
+      if (sharpDrop && classification !== 'Declining') {
         direction = 'down';
         classification = 'Declining';
+      }
+
+      if (sharpDrop) {
+        tags.push('Sharp Drop');
+      }
+      if (newHigh) {
+        tags.push('New High');
       }
 
       return {
         direction,
         pct: pctChange,
-        classification
+        classification,
+        confidence,
+        tags
       };
     }
 
     // MONTHLY: Simple month-on-month comparison
     function calcTrendForMonthly(series) {
       if (!Array.isArray(series) || series.length < 2) {
-        return { direction: 'flat', pct: 0, classification: 'Flat' };
+        return { direction: 'new', pct: 0, classification: 'New', confidence: 'insufficient' };
       }
 
-      const clean = series.map(v => num(v));
+      const clean = validSeriesValues(series);
+      if (clean.length < 2) {
+        return { direction: 'new', pct: 0, classification: 'New', confidence: 'insufficient' };
+      }
       const prev = clean[clean.length - 2];
       const curr = clean[clean.length - 1];
       const pctChange = prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
 
       let direction = 'flat';
-      let classification = 'Flat';
+      const confidence = clean.length < 3 ? 'low' : 'high';
+      let classification = mapTrendLabel('flat', confidence);
       
-      if (pctChange > 2) {
+      if (clean.length >= 3 && pctChange > 2) {
         direction = 'up';
-        classification = 'Growing';
-      } else if (pctChange < -2) {
+        classification = mapTrendLabel('up', confidence);
+      } else if (clean.length >= 3 && pctChange < -2) {
         direction = 'down';
         classification = 'Declining';
       }
@@ -1297,7 +1500,8 @@
       return {
         direction,
         pct: pctChange,
-        classification
+        classification,
+        confidence
       };
     }
 
@@ -1314,7 +1518,7 @@
     }
 
     function isDeclining(series) {
-      const clean = (series || []).map(num);
+      const clean = validSeriesValues(series);
       if (clean.length < 3) return false;
       // Use last 3 periods to determine if declining
       const lastThree = clean.slice(-3);
@@ -1337,6 +1541,7 @@
     // Calculate what needs attention about this item (reason-based)
     function calcNeedsAttentionReasons(item) {
       const reasons = [];
+      const isServiceItem = item?.type === 'services' || item?.type === 'overview-services';
       
       // Low reporting
       if (item.reporting_pct < 50) {
@@ -1344,19 +1549,54 @@
       }
       
       // Missing reports
-      if (item.hasMissingReports) {
+      if (num(item.missingRatio) > 0) {
         reasons.push('Missing Reports');
       }
-      
-      // Zero attendance streak (last 2+ periods are zero)
-      if (item.series.length >= 2) {
-        const lastTwo = item.series.slice(-2);
-        if (lastTwo.every(v => num(v) === 0)) {
-          reasons.push('Zero attendance');
+
+      if (isServiceItem && item.trend?.classification === 'Declining') {
+        reasons.push('Declining trend');
+      }
+
+      if (isServiceItem && item.trend?.classification === 'Volatile') {
+        reasons.push('Volatility');
+      }
+
+      const clean = validSeriesValues(item.series);
+
+      if (clean.length >= 2) {
+        const prev = clean[clean.length - 2];
+        const latest = clean[clean.length - 1];
+        const sharpDropThreshold = isServiceItem ? (prev < 10 ? 0.5 : 0.75) : 0.5;
+        if (prev > 0 && latest < prev * sharpDropThreshold) {
+          reasons.push('Sharp drop');
         }
       }
       
-      return reasons.length > 0 ? reasons : null;
+      if (clean.length >= 3) {
+        const fullAvg = avg(clean);
+        const last3Avg = avg(clean.slice(-3));
+        if (fullAvg > 0 && last3Avg < fullAvg * 0.5) {
+          reasons.push('Persistent low');
+        }
+      }
+
+      if (num(item.recentReportingPct) <= 50) {
+        reasons.push('Inconsistent reporter');
+      }
+
+      // Zero attendance streak (last 3 consecutive valid periods are zero)
+      if (clean.length >= 3) {
+        let zeroRun = 0;
+        for (let i = clean.length - 1; i >= 0; i--) {
+          if (num(clean[i]) === 0) zeroRun++;
+          else break;
+        }
+        if (zeroRun >= 3) {
+          reasons.push('Zero streak');
+        }
+      }
+      
+      return unique(reasons).length > 0 ? unique(reasons) : null;
     }
 
     function currentItems() {
@@ -1385,6 +1625,10 @@
       let isMonthlyData = false;
       let weeklyMissingReports = false;
       let missingReportWeeks = [];
+      let expectedCount = 0;
+      let reportedCount = 0;
+      let recentExpectedCount = 0;
+      let recentReportedCount = 0;
 
       if (monthlyObj && typeof monthlyObj === 'object' && !Array.isArray(monthlyObj)) {
         isMonthlyData = true;
@@ -1394,20 +1638,30 @@
         labels = weeklyArr.map((w, i) => safeText(w?.week, `P${i + 1}`));
         series = weeklyArr.map(w => {
           if (w?.missing === true) return null;
-          if (w?.attendance === null || w?.attendance === undefined || w?.attendance === '') return null;
+          if (isMissingAttendanceValue(w?.attendance)) return null;
           return num(w.attendance);
         });
-        weeklyMissingReports = weeklyArr.some(w => w?.missing === true || w?.attendance === null || w?.attendance === undefined || w?.attendance === '');
+        expectedCount = weeklyArr.length;
+        reportedCount = series.filter(v => v !== null).length;
+        const recentWeekly = weeklyArr.slice(-6);
+        recentExpectedCount = recentWeekly.length;
+        recentReportedCount = recentWeekly.filter(w => !(w?.missing === true || isMissingAttendanceValue(w?.attendance))).length;
+        weeklyMissingReports = weeklyArr.some(w => w?.missing === true || isMissingAttendanceValue(w?.attendance));
         missingReportWeeks = weeklyArr
-          .filter(w => w?.missing === true || w?.attendance === null || w?.attendance === undefined || w?.attendance === '')
+          .filter(w => w?.missing === true || isMissingAttendanceValue(w?.attendance))
           .map((w, i) => safeText(w?.week, `P${i + 1}`))
           .filter(Boolean);
       } else if (Array.isArray(item.spark)) {
         labels = item.spark.map((_, i) => item.sparkLabels?.[i] || `P${i + 1}`);
-        series = item.spark.map(num);
+        series = item.spark.map(v => isMissingAttendanceValue(v) ? null : num(v));
+        expectedCount = item.spark.length;
+        reportedCount = series.filter(v => v !== null).length;
+        const recentSpark = item.spark.slice(-6);
+        recentExpectedCount = recentSpark.length;
+        recentReportedCount = recentSpark.filter(v => !isMissingAttendanceValue(v)).length;
         missingReportWeeks = item.spark
           .map((v, i) => ({ v, lbl: item.sparkLabels?.[i] || `P${i + 1}` }))
-          .filter(x => x.v === null || x.v === undefined || x.v === '')
+          .filter(x => isMissingAttendanceValue(x.v))
           .map(x => safeText(x.lbl))
           .filter(Boolean);
       } else {
@@ -1429,6 +1683,9 @@
         }
         return !isValidReport(val, rawVal);
       });
+      const missingRatio = expectedCount > 0 ? (expectedCount - reportedCount) / expectedCount : (hasMissingReports ? 1 : 0);
+      const recentReportingPct = recentExpectedCount > 0 ? (recentReportedCount / recentExpectedCount) * 100 : 100;
+      const computedReportingPct = expectedCount > 0 ? (reportedCount / expectedCount) * 100 : reportingPct;
 
       const total =
         series.length
@@ -1469,7 +1726,7 @@
         leader: safeText(leader),
         sc_code: safeText(item.sc_code || item.code || ''),
         membership,
-        reporting_pct: clamp(reportingPct, 0, 100),
+        reporting_pct: clamp(computedReportingPct, 0, 100),
         labels,
         series,
         total,
@@ -1478,7 +1735,9 @@
         fullYearTotal,
         monthOnMonthPct,
         isMonthlyData,
-        hasMissingReports,
+        hasMissingReports: missingRatio > 0,
+        missingRatio: clamp(missingRatio, 0, 1),
+        recentReportingPct: clamp(recentReportingPct, 0, 100),
         missingReportWeeks: unique(missingReportWeeks),
         trend: {
           ...trend,
@@ -1569,7 +1828,6 @@
       const summaryBar = document.getElementById('summary-bar');
       summaryBar.innerHTML = `
         <div class="stat-pill" data-filter="all"><div class="dot" style="background:#6c63ff"></div><strong>${formatInt(totalItems)}</strong> ${label}</div>
-        <div class="stat-pill" data-filter="avg-attendance"><div class="dot" style="background:#f7b731"></div><strong>${formatInt(avgAttendance)}</strong> Avg Attendance</div>
         <div class="stat-pill" data-filter="reporting"><div class="dot" style="background:#9ca3af"></div><strong>${formatInt(reportingAvg)}%</strong> Reporting</div>
         <div class="stat-pill" data-filter="trending-up"><div class="dot" style="background:#26de81"></div><strong>${formatInt(trendingUp)}</strong> Stable Growing</div>
         <div class="stat-pill" data-filter="trending-down"><div class="dot" style="background:#fc5c65"></div><strong>${formatInt(trendingDown)}</strong> Declining</div>
@@ -1588,8 +1846,6 @@
             document.getElementById('trend-filter').value = 'down';
           } else if (filterType === 'reporting') {
             document.getElementById('sort-select').value = 'reporting';
-          } else if (filterType === 'avg-attendance') {
-            document.getElementById('sort-select').value = 'attendance';
           }
           render();
         });
@@ -1613,7 +1869,7 @@
       canvas.width = W;
       canvas.height = H;
 
-      const pts = (series || []).map(num);
+      const pts = validSeriesValues(series);
       if (!pts.length) return;
 
       const max = Math.max(...pts, 1);
@@ -1696,13 +1952,14 @@
         trend === 'emerging' ? '↗' :
         trend === 'down' ? '↓' :
         '→';
-      const trendLabel = safeText(d?.trend?.classification, '');
+      const trendLabelBase = safeText(d?.trend?.classification, '');
+      const trendTags = Array.isArray(d?.trend?.tags) && d.trend.tags.length ? ` • ${d.trend.tags.join(', ')}` : '';
+      const trendLabel = `${trendLabelBase}${trendTags}`;
       const isOverviewCells = d.type === 'overview-cells';
       const isOverviewServices = d.type === 'overview-services';
       const isRegionalCard = safeText(d.group).toLowerCase() === 'regional';
-      const isSgOverviewTab = currentTopTab === 'overview';
       const subtitle = (isOverviewCells || isOverviewServices)
-        ? `${isRegionalCard ? 'Regional Summary · ' : ''}Reporting ${Math.round(d.reporting_pct)}%`
+        ? `${isRegionalCard ? 'Regional Summary' : safeText(d.group)}`
         : `${d.group}${d.leader ? ' · ' + d.leader : ''}${d.sc_code ? ' · ' + d.sc_code : ''}`;
 
       let stat1Val = formatInt(d.membership);
@@ -1724,16 +1981,21 @@
         }
       } else if (isOverviewServices) {
         if (isRegionalCard) {
-          stat1Val = formatInt(d.total || 0);
-          stat1Lbl = 'Latest';
-          stat2Val = `${Math.round(d.reporting_pct)}%`;
-          stat2Lbl = 'Reporting';
+          stat1Val = `${Math.round(d.reporting_pct)}%`;
+          stat1Lbl = 'Reporting';
+          stat2Val = safeText(d?.trend?.classification, 'Stable');
+          stat2Lbl = 'Trend';
         } else {
           stat1Val = formatInt(d.needs_attention_count || 0);
           stat1Lbl = 'Needs Attn';
-          stat2Val = formatInt(d.total || 0);
-          stat2Lbl = 'Latest';
+          stat2Val = `${Math.round(d.reporting_pct)}%`;
+          stat2Lbl = 'Reporting';
         }
+      } else if (d.type === 'services') {
+        stat1Val = formatInt(d.total || 0);
+        stat1Lbl = 'Latest';
+        stat2Val = `${Math.round(d.reporting_pct)}%`;
+        stat2Lbl = 'Reporting';
       }
 
       const card = document.createElement('div');
@@ -1747,7 +2009,12 @@
 
       // Format month-on-month change if applicable
       let momHTML = '';
-      // Classification-first display: avoid noisy percent badges on cards.
+      const monthMeta = getMonthPctMeta(d.series);
+      const lowConf = d?.trend?.confidence === 'low' || d?.trend?.confidence === 'insufficient';
+      if (monthMeta.hasData) {
+        const pctText = formatSecondaryPct(monthMeta, lowConf);
+        momHTML = `<span class="trend-pct ${lowConf ? 'lowconf' : ''}">${pctText}</span>`;
+      }
 
       card.innerHTML = `
         <div class="card-header">
@@ -1758,22 +2025,24 @@
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
             <span class="trend-badge ${wowClass}">${arrow} ${trendLabel}${momHTML}</span>
-            ${buildRing(d.reporting_pct, !isSgOverviewTab)}
+            ${buildRing(d.reporting_pct, true)}
           </div>
         </div>
         ${d.series.length
           ? '<div class="sparkline-wrap"><canvas class="spark"></canvas></div>'
           : '<div class="no-data-msg">No attendance data available</div>'}
-        <div class="card-stats">
-          <div class="mini-stat">
-            <div class="val">${stat1Val}</div>
-            <div class="lbl">${stat1Lbl}</div>
-          </div>
-          <div class="mini-stat">
-            <div class="val">${stat2Val}</div>
-            <div class="lbl">${stat2Lbl}</div>
-          </div>
-        </div>
+        ${d.type === 'services'
+          ? ''
+          : `<div class="card-stats">
+              <div class="mini-stat">
+                <div class="val">${stat1Val}</div>
+                <div class="lbl">${stat1Lbl}</div>
+              </div>
+              <div class="mini-stat">
+                <div class="val">${stat2Val}</div>
+                <div class="lbl">${stat2Lbl}</div>
+              </div>
+            </div>`}
       `;
 
       if (d.series.length) {
@@ -1790,47 +2059,62 @@
     function openModal(d) {
       const isOverviewCells = d.type === 'overview-cells';
       const isOverviewServices = d.type === 'overview-services';
+      const isServicesTabCard = d.type === 'services';
       const isRegionalCard = safeText(d.group).toLowerCase() === 'regional';
       const attentionEl = document.getElementById('modal-attention');
 
+      const monthMeta = getMonthPctMeta(d.series);
+      const threeMonthMeta = getThreeMonthPctMeta(d.series);
+      const lowConf = d?.trend?.confidence === 'low' || d?.trend?.confidence === 'insufficient';
+      const monthText = formatSecondaryPct(monthMeta, lowConf);
+      const threeText = formatSecondaryPct(threeMonthMeta, lowConf);
+      const trendTags = Array.isArray(d?.trend?.tags) && d.trend.tags.length ? d.trend.tags.join(', ') : '';
+
       document.getElementById('modal-title').textContent = d.name;
-      document.getElementById('modal-sub').textContent =
+      const baseSub =
         isRegionalCard
           ? `Regional Overview · Reporting ${Math.round(d.reporting_pct)}%`
           : isOverviewCells
           ? `Cells Overview · Reporting ${Math.round(d.reporting_pct)}%`
           : isOverviewServices
             ? `Services Overview · Reporting ${Math.round(d.reporting_pct)}%`
+            : isServicesTabCard
+              ? `Subgroup: ${d.group} · Reporting ${Math.round(d.reporting_pct)}%`
             : `${titleCase(currentTopTab)} · ${d.group}${d.leader ? ' · ' + d.leader : ''}`;
+      document.getElementById('modal-sub').textContent = `${baseSub} | Trend: ${safeText(d?.trend?.classification, 'Stable')}${trendTags ? ` (${trendTags})` : ''} | Month %: ${monthText} | 3M %: ${threeText}`;
 
       document.getElementById('modal-stats').innerHTML = `
         <div class="modal-stat">
           <div class="val">${
             isRegionalCard
               ? (isOverviewServices ? formatInt(d.total || 0) : formatInt(d.membership))
-              : (isOverviewServices ? formatInt(d.needs_attention_count || 0) : formatInt(d.membership))
+              : (isOverviewServices ? formatInt(d.needs_attention_count || 0) : isServicesTabCard ? safeText(d.group, '—') : formatInt(d.membership))
           }</div>
           <div class="lbl">${
             isRegionalCard
               ? (isOverviewServices ? 'Latest' : 'Members')
-              : (isOverviewServices ? 'Needs Attn' : 'Members')
+              : (isOverviewServices ? 'Needs Attn' : isServicesTabCard ? 'Subgroup' : 'Members')
           }</div>
         </div>
         <div class="modal-stat">
           <div class="val">${
             isRegionalCard
               ? (isOverviewServices ? `${Math.round(d.reporting_pct)}%` : formatInt(d.total || 0))
-              : Math.round(d.last3MonthsAvg)
+              : isServicesTabCard ? `${Math.round(d.reporting_pct)}%` : Math.round(d.last3MonthsAvg)
           }</div>
           <div class="lbl">${
             isRegionalCard
               ? (isOverviewServices ? 'Reporting' : 'Latest')
-              : '3M Avg'
+              : isServicesTabCard ? 'Reporting' : '3M Avg'
           }</div>
         </div>
         <div class="modal-stat">
-          <div class="val">${safeText(d?.trend?.classification, 'Flat')}</div>
-          <div class="lbl">Trend</div>
+          <div class="val">${
+            isServicesTabCard
+              ? formatSecondaryPct(monthMeta, lowConf)
+              : `${safeText(d?.trend?.classification, 'Stable')}${Array.isArray(d?.trend?.tags) && d.trend.tags.length ? ` • ${d.trend.tags.join(', ')}` : ''}`
+          }</div>
+          <div class="lbl">${isServicesTabCard ? 'MoM' : 'Trend'}</div>
         </div>
       `;
 
@@ -1866,6 +2150,9 @@
           const missingWeeks = (d.missingReportWeeks || []).filter(Boolean);
           const missingWeeksHtml = missingWeeks.length ? `<br><span>Missing week(s): ${missingWeeks.join(', ')}</span>` : '';
           attentionEl.innerHTML = `<strong>Needs Attention:</strong> ${reasons || 'Yes'}${missingWeeksHtml}${namesHtml}`;
+          attentionEl.style.display = 'block';
+        } else if (isServicesTabCard) {
+          attentionEl.innerHTML = `<strong>Needs Attention:</strong> None`;
           attentionEl.style.display = 'block';
         } else {
           attentionEl.innerHTML = '';
@@ -2172,36 +2459,38 @@
     }
 
     function initDashboard() {
-      // Load saved theme
-      const savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
-      document.body.classList.toggle('light-mode', savedTheme === 'light');
+      if (!dashboardInitialized) {
+        // Load saved theme
+        const savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
+        document.body.classList.toggle('light-mode', savedTheme === 'light');
+
+        document.getElementById('search').addEventListener('input', render);
+        document.getElementById('sort-select').addEventListener('change', render);
+        document.getElementById('trend-filter').addEventListener('change', render);
+        
+        // Theme toggle button
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+          const isLight = document.body.classList.toggle('light-mode');
+          localStorage.setItem('dashboard-theme', isLight ? 'light' : 'dark');
+        });
+        
+        // Reset filters button
+        document.getElementById('reset-filters').addEventListener('click', () => {
+          document.getElementById('search').value = '';
+          document.getElementById('sort-select').value = 'name';
+          document.getElementById('trend-filter').value = 'all';
+          activeGroup = 'all';
+          initGroupTabs();
+          render();
+        });
+
+        document.getElementById('modal-overlay').addEventListener('click', closeModal);
+        document.getElementById('modal-close').addEventListener('click', closeModalBtn);
+        dashboardInitialized = true;
+      }
 
       initTopTabs();
       initGroupTabs();
-
-      document.getElementById('search').addEventListener('input', render);
-      document.getElementById('sort-select').addEventListener('change', render);
-      document.getElementById('trend-filter').addEventListener('change', render);
-      
-      // Theme toggle button
-      document.getElementById('theme-toggle').addEventListener('click', () => {
-        const isLight = document.body.classList.toggle('light-mode');
-        localStorage.setItem('dashboard-theme', isLight ? 'light' : 'dark');
-      });
-      
-      // Reset filters button
-      document.getElementById('reset-filters').addEventListener('click', () => {
-        document.getElementById('search').value = '';
-        document.getElementById('sort-select').value = 'name';
-        document.getElementById('trend-filter').value = 'all';
-        activeGroup = 'all';
-        initGroupTabs();
-        render();
-      });
-
-      document.getElementById('modal-overlay').addEventListener('click', closeModal);
-      document.getElementById('modal-close').addEventListener('click', closeModalBtn);
-
       render();
     }
 
@@ -2281,26 +2570,102 @@
       }
     }
 
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function loadAnyTransport(url, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        let errors = [];
+        const maybeReject = () => {
+          if (!settled && errors.length >= 2) {
+            settled = true;
+            reject(errors[errors.length - 1] || new Error('All transport methods failed.'));
+          }
+        };
+        const onResolve = payload => {
+          if (settled) return;
+          settled = true;
+          resolve(payload);
+        };
+        const onReject = err => {
+          errors.push(err);
+          maybeReject();
+        };
+
+        loadViaJsonp(url, timeoutMs).then(onResolve).catch(onReject);
+        fetchJsonWithTimeout(url, timeoutMs).then(onResolve).catch(onReject);
+      });
+    }
+
+    async function loadWithRetries(url, options = {}) {
+      const attempts = options.attempts || 4;
+      const baseTimeoutMs = options.baseTimeoutMs || 10000;
+      const timeoutStepMs = options.timeoutStepMs || 5000;
+      const backoffMs = options.backoffMs || 700;
+
+      let lastErr = null;
+
+      for (let i = 0; i < attempts; i++) {
+        const timeoutMs = baseTimeoutMs + i * timeoutStepMs;
+        try {
+          return await loadAnyTransport(url, timeoutMs);
+        } catch (err) {
+          lastErr = err;
+          if (i < attempts - 1) {
+            const delay = backoffMs * (i + 1);
+            console.warn(`Attempt ${i + 1}/${attempts} failed. Retrying in ${delay}ms...`, err);
+            await wait(delay);
+          }
+        }
+      }
+
+      throw lastErr || new Error('Failed to load dashboard data after retries.');
+    }
+
     async function loadDashboard() {
       // Replace with your deployed Google Apps Script web app URL
       const API_URL = 'https://script.google.com/macros/s/AKfycbzizTU0Ubjrg7-Gmnk4bFWPlcFF7qxz01e_HEM5syoAxajZ-k3JtSvPzGfEf58kf_7i/exec';
+      const CACHE_KEY = 'blw-dashboard-last-good-payload-v1';
+      let hadCachedPayload = false;
 
       console.log('Loading dashboard data from:', API_URL);
 
       try {
-        const payload = await loadViaJsonp(API_URL, 12000);
-        applyPayload(payload);
-      } catch (jsonpErr) {
-        console.warn('JSONP load failed, trying fetch fallback:', jsonpErr);
-        try {
-          const payload = await fetchJsonWithTimeout(API_URL, 12000);
-          applyPayload(payload);
-        } catch (fetchErr) {
-          const message = fetchErr?.message || jsonpErr?.message || 'Unknown error';
-          console.error('Dashboard load error:', fetchErr || jsonpErr);
-          document.getElementById('grid-wrap').innerHTML =
-            '<div class="empty-state error"><p>Failed to load dashboard data.</p><small>Please check your web app deployment and sharing permissions. Error: ' + message + '</small></div>';
+        const cachedRaw = localStorage.getItem(CACHE_KEY);
+        if (cachedRaw) {
+          const cachedPayload = JSON.parse(cachedRaw);
+          cachedPayload.lastUpdated = cachedPayload.lastUpdated || new Date().toISOString();
+          applyPayload(cachedPayload);
+          hadCachedPayload = true;
         }
+      } catch (cacheReadErr) {
+        console.warn('Could not read cached payload:', cacheReadErr);
+      }
+
+      try {
+        const payload = await loadWithRetries(API_URL, {
+          attempts: 4,
+          baseTimeoutMs: 10000,
+          timeoutStepMs: 5000,
+          backoffMs: 900
+        });
+        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+        applyPayload(payload);
+      } catch (loadErr) {
+        console.error('Dashboard load error:', loadErr);
+        if (hadCachedPayload) {
+          // Keep cached data on screen and retry in the background.
+          setTimeout(() => {
+            loadDashboard().catch(err => console.warn('Scheduled retry failed:', err));
+          }, 45000);
+          return;
+        }
+
+        const message = loadErr?.message || 'Unknown error';
+        document.getElementById('grid-wrap').innerHTML =
+          '<div class="empty-state error"><p>Failed to load dashboard data.</p><small>Please check your web app deployment and sharing permissions. Error: ' + message + '</small></div>';
       }
     }
 

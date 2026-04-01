@@ -2341,6 +2341,110 @@ function escapeHtml(str) {
 
 function weekMonth(w) { return (w || '').split(' ')[0]; }
 
+function toAttendanceNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeWeekLabel(raw) {
+  const txt = String(raw == null ? '' : raw).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!txt) return '';
+
+  const monthWeek = txt.match(/^([A-Za-z]{3,9})\s*(PP|B\d+|W\d+|O|WEEK\s*\d+)(?:\s+.*)?$/i);
+  if (monthWeek) {
+    const monthKey = monthWeek[1].slice(0, 3).toLowerCase();
+    const month = MONTH_ORDER.find(m => m.toLowerCase() === monthKey);
+    if (!month) return '';
+    const segment = monthWeek[2].replace(/\s+/g, '').toUpperCase().replace(/^WEEK/, 'W');
+    return `${month} ${segment}`;
+  }
+
+  const shortWeek = txt.match(/^(PP|B\d+|W\d+|O|WEEK\s*\d+)$/i);
+  if (shortWeek) return shortWeek[1].replace(/\s+/g, '').toUpperCase().replace(/^WEEK/, 'W');
+
+  return '';
+}
+
+function normalizeWeeklyRecord(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const rawWeek = entry.week ?? entry.label ?? entry.name ?? '';
+  const normalized = normalizeWeekLabel(rawWeek);
+  const week = normalized || String(rawWeek || '').trim();
+  if (!week) return null;
+
+  const attendance = toAttendanceNumber(entry.attendance ?? entry.value ?? entry.count ?? entry.total);
+  return {
+    week,
+    attendance,
+    missing: entry.missing === true || attendance === null
+  };
+}
+
+function collectWeeklyFromMap(map) {
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return [];
+  const out = [];
+  Object.entries(map).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const nested = normalizeWeeklyRecord({ ...value, week: value.week ?? key });
+      if (nested) out.push(nested);
+      return;
+    }
+    const week = normalizeWeekLabel(key);
+    if (!week) return;
+    const attendance = toAttendanceNumber(value);
+    out.push({ week, attendance, missing: attendance === null });
+  });
+  return out;
+}
+
+function collectWeeklyFromColumns(item) {
+  if (!item || typeof item !== 'object') return [];
+  const out = [];
+  Object.entries(item).forEach(([key, value]) => {
+    const week = normalizeWeekLabel(key);
+    if (!week) return;
+    const attendance = toAttendanceNumber(value);
+    out.push({ week, attendance, missing: attendance === null });
+  });
+  return out;
+}
+
+function mergeWeeklyRecord(target, row) {
+  if (!row || !row.week) return;
+  const idx = target.findIndex(w => w.week === row.week);
+  if (idx === -1) {
+    target.push(row);
+    return;
+  }
+  if (target[idx].missing && !row.missing) {
+    target[idx] = row;
+  }
+}
+
+function normalizeWeekly(item) {
+  const merged = [];
+  const addMany = rows => (rows || []).forEach(row => mergeWeeklyRecord(merged, row));
+
+  if (Array.isArray(item?.weekly)) {
+    addMany(item.weekly.map(normalizeWeeklyRecord).filter(Boolean));
+  } else if (item?.weekly && typeof item.weekly === 'object') {
+    addMany(collectWeeklyFromMap(item.weekly));
+  }
+
+  ['weeks', 'weekly_columns', 'weeklyColumns', 'week_columns', 'weekColumns'].forEach(key => {
+    const candidate = item?.[key];
+    if (Array.isArray(candidate)) {
+      addMany(candidate.map(normalizeWeeklyRecord).filter(Boolean));
+    } else if (candidate && typeof candidate === 'object') {
+      addMany(collectWeeklyFromMap(candidate));
+    }
+  });
+
+  addMany(collectWeeklyFromColumns(item));
+  return merged;
+}
+
 function calcGrowth(weekly) {
   const pts = (weekly || []).filter(w => !w.missing && w.attendance !== null && w.attendance !== undefined);
   if (pts.length < 2) return { slope: 0, wowTotal: null };
@@ -2379,6 +2483,7 @@ function buildRing(pct) {
 function normalizeItems(tab) {
   const src = Array.isArray(rawPayload[tab]) ? rawPayload[tab] : [];
   return src.map((d, i) => {
+    const weekly = normalizeWeekly(d);
     if (tab === 'overview') {
       const membership = Number(d.total_members ?? d.cell_members ?? 0) || 0;
       const avgAttendance = Number(d.avg_attendance ?? 0) || 0;
@@ -2394,12 +2499,12 @@ function normalizeItems(tab) {
         sc_code: '',
         group: d.group || d.name || '',
         missing_reports: Number(d.missing_reports ?? 0) || 0,
-        weekly: Array.isArray(d.weekly) ? d.weekly : [],
+        weekly,
         engagement_pct: engagement,
         item_count: Number(d.total_cells ?? d.cell_count ?? 0) || 0,
         service_count: Number(d.total_services ?? d.service_count ?? 0) || 0,
         cells_needing_attention: Number(d.cells_needing_attention ?? 0) || 0,
-        growth: calcGrowth(d.weekly || [])
+        growth: calcGrowth(weekly)
       };
     }
 
@@ -2416,10 +2521,10 @@ function normalizeItems(tab) {
         sc_code: d.sc_code || '',
         group: d.group || '',
         missing_reports: Number(d.missing_reports ?? 0) || 0,
-        weekly: Array.isArray(d.weekly) ? d.weekly : [],
+        weekly,
         engagement_pct: base > 0 && Number(d.avg_attendance ?? 0) > 0 ? (Number(d.avg_attendance) / base) * 100 : null,
         metric_label: 'Cells Repr.',
-        growth: calcGrowth(d.weekly || [])
+        growth: calcGrowth(weekly)
       };
     }
 
@@ -2435,10 +2540,10 @@ function normalizeItems(tab) {
       sc_code: d.sc_code || '',
       group: d.group || '',
       missing_reports: Number(d.missing_reports ?? 0) || 0,
-      weekly: Array.isArray(d.weekly) ? d.weekly : [],
+      weekly,
       engagement_pct: Number.isFinite(Number(d.engagement_pct)) ? Number(d.engagement_pct) : (mem > 0 && Number(d.avg_attendance ?? 0) > 0 ? (Number(d.avg_attendance) / mem) * 100 : null),
       metric_label: 'Members',
-      growth: calcGrowth(d.weekly || [])
+      growth: calcGrowth(weekly)
     };
   });
 }

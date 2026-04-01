@@ -1,30 +1,30 @@
 # BLW Canada Dashboard (`dashboard.html`)
 
-Single-file HTML dashboard for monitoring BLW Canada attendance and reporting health across **Cells**, **Services**, and **SG Overview**.
+A single-file HTML dashboard for monitoring **attendance, trends, and reporting health** across **Cells**, **Services**, and **SG Overview** within BLW Canada.
 
 ---
 
 ## What This File Does
 
-- Loads dashboard data from a Google Apps Script endpoint
-- Normalizes mixed payload shapes (weekly arrays, monthly objects, spark arrays)
-- Classifies trends accurately (**no false growth from dips or missing reports**)
-- Supports filtering, sorting, grouping, and tabbed views
+- Loads live dashboard data from a Google Apps Script endpoint
+- Normalizes multiple data shapes (weekly, monthly, spark arrays)
+- Classifies trends using **behaviour-based logic** (prevents false growth from dips or missing data)
+- Supports filtering, sorting, grouping, and tabbed navigation
 - Renders sparkline previews on cards and detailed charts in a modal
-- Highlights reporting quality and “Needs Attention” conditions
-- Supports light/dark theme persistence via `localStorage`
+- Highlights reporting quality and actionable **Needs Attention** conditions
+- Persists theme (light/dark mode) via `localStorage`
 
 ---
 
 ## Data Source
 
-The dashboard fetches data from:
+The dashboard retrieves data from:
 
-- `API_URL` inside `loadDashboard()`
-- Primary: JSONP (`loadViaJsonp`)
-- Fallback: `fetch` with timeout (`fetchJsonWithTimeout`)
+- `API_URL` defined in `loadDashboard()`
+- Primary method: JSONP (`loadViaJsonp`)
+- Fallback method: `fetch` with timeout (`fetchJsonWithTimeout`)
 
-Expected payload:
+### Expected Payload
 
 ```json
 {

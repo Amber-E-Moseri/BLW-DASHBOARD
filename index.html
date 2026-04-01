@@ -191,58 +191,71 @@
     }
 
     .definitions {
-      padding: 10px 40px 14px;
+      padding: 6px 40px 10px;
       border-bottom: 1px solid var(--border);
       background: var(--surface);
+      opacity: 0.9;
     }
 
-    .definitions details {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
+    .definitions-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      padding: 8px 10px;
     }
 
-    .definitions summary {
+    .definitions-card summary {
       cursor: pointer;
-      color: var(--text);
-      font-weight: 600;
-      font-size: 12px;
       list-style: none;
       user-select: none;
     }
 
-    .definitions summary::-webkit-details-marker { display: none; }
+    .definitions-card summary::-webkit-details-marker { display: none; }
 
-    .definitions summary::after {
-      content: 'Show';
-      float: right;
-      color: var(--muted);
-      font-weight: 500;
+    .definitions-title {
+      color: var(--text-dim);
+      font-weight: 600;
       font-size: 11px;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
     }
 
-    .definitions details[open] summary::after {
+    .definitions-card summary.definitions-title::after {
+      content: 'Show';
+      float: right;
+      text-transform: none;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0;
+      font-weight: 500;
+    }
+
+    .definitions-card[open] summary.definitions-title {
+      margin-bottom: 6px;
+    }
+
+    .definitions-card[open] summary.definitions-title::after {
       content: 'Hide';
     }
 
     .definitions-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 8px 12px;
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border);
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 4px 12px;
+      margin-top: 4px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
     }
 
     .def-item {
-      font-size: 11.5px;
+      font-size: 10.5px;
       color: var(--text-dim);
-      line-height: 1.4;
+      line-height: 1.3;
+      opacity: 0.9;
     }
 
     .def-item strong {
-      color: var(--text);
+      color: var(--text-dim);
       font-weight: 600;
     }
 
@@ -688,8 +701,8 @@
   <div id="summary-bar" class="summary-bar"></div>
 
   <section class="definitions" aria-label="Dashboard definitions">
-    <details>
-      <summary>Definitions & Label Guide</summary>
+    <details class="definitions-card">
+      <summary class="definitions-title">Definitions & Label Guide</summary>
       <div class="definitions-grid">
         <div class="def-item"><strong>Growing:</strong> sustained upward movement across recent valid weeks.</div>
         <div class="def-item"><strong>Emerging Growth:</strong> upward direction, but not yet stable.</div>
@@ -1139,6 +1152,20 @@
       const windowMin = Math.min(...recent, 0);
       const swingRatio = (windowMax - windowMin) / Math.max(prevAvg, lastAvg, 1);
 
+      // Recent direction override: latest 2-3 valid weeks drive final direction.
+      const recentDirectionWindow = clean.length >= 3 ? clean.slice(-3) : clean.slice(-2);
+      const recentDirectionDiffs = [];
+      for (let i = 1; i < recentDirectionWindow.length; i++) {
+        recentDirectionDiffs.push(recentDirectionWindow[i] - recentDirectionWindow[i - 1]);
+      }
+      const recentDownMoves = recentDirectionDiffs.filter(d => d < 0).length;
+      const recentUpMoves = recentDirectionDiffs.filter(d => d > 0).length;
+      const consistentRecentDecline =
+        recentDirectionDiffs.length > 0 &&
+        recentDirectionDiffs.every(d => d <= 0) &&
+        recentDownMoves > 0;
+      const recentDirectionIsDown = recentDownMoves > recentUpMoves;
+
       // Recovery guard: a deep dip in previous window followed by return near baseline is "Recovered", not "Growing".
       const baselinePool = clean.length >= 9 ? clean.slice(-9, -3) : clean.slice(0, -3);
       const baselineAvg = baselinePool.length ? avg(baselinePool) : prevAvg;
@@ -1153,7 +1180,10 @@
       let direction = 'flat';
       let classification = 'Flat';
 
-      if (swingRatio > 0.42 && directionBias < 0.35 && alternation >= 2) {
+      if (consistentRecentDecline) {
+        direction = 'down';
+        classification = 'Declining';
+      } else if (swingRatio > 0.42 && directionBias < 0.35 && alternation >= 2) {
         direction = 'volatile';
         classification = 'Volatile';
       } else if (pctChange <= -trendThreshold && downMoves >= Math.max(1, Math.floor(moveCount / 2))) {
@@ -1167,6 +1197,7 @@
         lastAvg > prevAvg &&
         supportiveWeeks >= 2 &&
         upMoves >= downMoves + 1 &&
+        !recentDirectionIsDown &&
         !isRecovery
       ) {
         direction = hasMissing ? 'emerging' : 'up';
@@ -1192,15 +1223,41 @@
         return { direction: 'flat', pct: 0, classification: 'Flat' };
       }
 
-      const clean = series.map(v => num(v));
-      const first = clean[0];
-      const last = clean[clean.length - 1];
-      const pctChange = first === 0 ? (last > 0 ? 100 : 0) : ((last - first) / first) * 100;
+      const clean = validSeriesValues(series);
+      if (clean.length < 2) {
+        return { direction: 'flat', pct: 0, classification: 'Flat' };
+      }
+
+      const windowSize = clean.length >= 6 ? 3 : 2;
+      const prevWindow = clean.slice(-(windowSize * 2), -windowSize);
+      const latestWindow = clean.slice(-windowSize);
+      if (!prevWindow.length || !latestWindow.length) {
+        return { direction: 'flat', pct: 0, classification: 'Flat' };
+      }
+
+      const prevAvg = avg(prevWindow);
+      const lastAvg = avg(latestWindow);
+      const pctChange = prevAvg === 0 ? (lastAvg > 0 ? 100 : 0) : ((lastAvg - prevAvg) / prevAvg) * 100;
+
+      // Recent direction override: if latest 2-3 valid points are consistently dropping,
+      // classify as declining regardless of broader history.
+      const recentDirectionWindow = clean.length >= 3 ? clean.slice(-3) : clean.slice(-2);
+      const recentDirectionDiffs = [];
+      for (let i = 1; i < recentDirectionWindow.length; i++) {
+        recentDirectionDiffs.push(recentDirectionWindow[i] - recentDirectionWindow[i - 1]);
+      }
+      const consistentRecentDecline =
+        recentDirectionDiffs.length > 0 &&
+        recentDirectionDiffs.every(d => d <= 0) &&
+        recentDirectionDiffs.some(d => d < 0);
 
       let direction = 'flat';
       let classification = 'Flat';
-      
-      if (pctChange > 5) {
+
+      if (consistentRecentDecline) {
+        direction = 'down';
+        classification = 'Declining';
+      } else if (pctChange > 5) {
         direction = 'up';
         classification = 'Growing';
       } else if (pctChange < -5) {

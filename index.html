@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BLW Canada — Cell Dashboard</title>
+  <title>BLW Canada &mdash; Cell Dashboard</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
@@ -670,7 +670,7 @@
   <header>
     <div class="logo-area">
       <div class="logo-title-row">
-        <img src="canada_sr.png" alt="BLW Canada Logo" class="logo-mark" />
+        <img src="../canada_sr (1).png" alt="BLW Canada Logo" class="logo-mark" />
         <h1>BLW Canada Dashboard</h1>
       </div>
       <p>Cell attendance, services, trends and reporting metrics</p>
@@ -715,7 +715,7 @@
       </button>
 
       <div class="last-updated" id="last-updated" style="display:none;">
-        <span class="last-updated-label">Updated:</span> <span id="updated-time">—</span>
+        <span class="last-updated-label">Updated:</span> <span id="updated-time">&mdash;</span>
       </div>
     </div>
   </header>
@@ -789,6 +789,20 @@
     let modalChart = null;
     let dashboardInitialized = false;
 
+    function normalizeSubgroupParam(raw) {
+      const val = safeText(raw).trim();
+      if (!val) return '';
+      const key = val.toLowerCase();
+      if (key === 'all' || key === 'all-groups' || key === 'full' || key === 'regional' || key === '*') {
+        return '';
+      }
+      return val;
+    }
+
+    const URL_PARAMS = new URLSearchParams(window.location.search);
+    const SUBGROUP_PARAM = normalizeSubgroupParam(URL_PARAMS.get('subgroup'));
+    const IS_SUBGROUP_VIEW = Boolean(SUBGROUP_PARAM);
+
     function num(v) {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
@@ -838,7 +852,7 @@
     }
 
     function formatPct(n) {
-      if (n == null || Number.isNaN(n)) return '—';
+      if (n == null || Number.isNaN(n)) return '-';
       const sign = n > 0 ? '+' : '';
       return `${sign}${Math.round(n)}%`;
     }
@@ -1755,12 +1769,26 @@
       const host = document.getElementById('top-tabs');
       host.innerHTML = '';
 
-      [
-        { key: 'regional', label: 'Regional' },
-        { key: 'overview', label: 'SG Overview' },
-        { key: 'cells', label: 'Cells' },
-        { key: 'services', label: 'Services' }
-      ].forEach(def => {
+      const topTabs = IS_SUBGROUP_VIEW
+        ? [
+            { key: 'overview', label: 'SG Overview' },
+            { key: 'cells', label: 'Cells' },
+            { key: 'services', label: 'Services' }
+          ]
+        : [
+            { key: 'regional', label: 'Regional' },
+            { key: 'overview', label: 'SG Overview' },
+            { key: 'cells', label: 'Cells' },
+            { key: 'services', label: 'Services' }
+          ];
+
+      if (IS_SUBGROUP_VIEW && currentTopTab === 'regional') {
+        currentTopTab = 'overview';
+      }
+
+
+
+      topTabs.forEach(def => {
         const btn = document.createElement('button');
         btn.className = `tab-btn ${currentTopTab === def.key ? 'active' : ''}`;
         btn.textContent = def.label;
@@ -1784,6 +1812,11 @@
         return;
       }
       tabsEl.style.display = 'flex';
+
+      if (IS_SUBGROUP_VIEW) {
+        tabsEl.style.display = 'none';
+        return;
+      }
 
       const allTab = document.createElement('button');
       allTab.className = `tab-btn ${activeGroup === 'all' ? 'active' : ''}`;
@@ -1948,19 +1981,19 @@
         trend === 'down' ? 'down' :
         'flat';
       const arrow =
-        trend === 'up' ? '↑' :
-        trend === 'emerging' ? '↗' :
-        trend === 'down' ? '↓' :
-        '→';
+        trend === 'up' ? '&uarr;' :
+        trend === 'emerging' ? '&nearr;' :
+        trend === 'down' ? '&darr;' :
+        '&rarr;';
       const trendLabelBase = safeText(d?.trend?.classification, '');
-      const trendTags = Array.isArray(d?.trend?.tags) && d.trend.tags.length ? ` • ${d.trend.tags.join(', ')}` : '';
+      const trendTags = Array.isArray(d?.trend?.tags) && d.trend.tags.length ? ` &bull; ${d.trend.tags.join(', ')}` : '';
       const trendLabel = `${trendLabelBase}${trendTags}`;
       const isOverviewCells = d.type === 'overview-cells';
       const isOverviewServices = d.type === 'overview-services';
       const isRegionalCard = safeText(d.group).toLowerCase() === 'regional';
       const subtitle = (isOverviewCells || isOverviewServices)
         ? `${isRegionalCard ? 'Regional Summary' : safeText(d.group)}`
-        : `${d.group}${d.leader ? ' · ' + d.leader : ''}${d.sc_code ? ' · ' + d.sc_code : ''}`;
+        : `${d.group}${d.leader ? ' - ' + d.leader : ''}${d.sc_code ? ' - ' + d.sc_code : ''}`;
 
       let stat1Val = formatInt(d.membership);
       let stat1Lbl = 'Members';
@@ -2004,7 +2037,7 @@
       // Format attention reasons
       let reasonsHTML = '';
       if (!isRegionalCard && d.needsAttentionReasons && d.needsAttentionReasons.length) {
-        reasonsHTML = `<div class="attention-reason">${d.needsAttentionReasons.join(' • ')}</div>`;
+        reasonsHTML = `<div class="attention-reason">${d.needsAttentionReasons.join(' &bull; ')}</div>`;
       }
 
       // Format month-on-month change if applicable
@@ -2073,14 +2106,14 @@
       document.getElementById('modal-title').textContent = d.name;
       const baseSub =
         isRegionalCard
-          ? `Regional Overview · Reporting ${Math.round(d.reporting_pct)}%`
+          ? `Regional Overview - Reporting ${Math.round(d.reporting_pct)}%`
           : isOverviewCells
-          ? `Cells Overview · Reporting ${Math.round(d.reporting_pct)}%`
+          ? `Cells Overview - Reporting ${Math.round(d.reporting_pct)}%`
           : isOverviewServices
-            ? `Services Overview · Reporting ${Math.round(d.reporting_pct)}%`
+            ? `Services Overview - Reporting ${Math.round(d.reporting_pct)}%`
             : isServicesTabCard
-              ? `Subgroup: ${d.group} · Reporting ${Math.round(d.reporting_pct)}%`
-            : `${titleCase(currentTopTab)} · ${d.group}${d.leader ? ' · ' + d.leader : ''}`;
+              ? `Subgroup: ${d.group} - Reporting ${Math.round(d.reporting_pct)}%`
+            : `${titleCase(currentTopTab)} - ${d.group}${d.leader ? ' - ' + d.leader : ''}`;
       document.getElementById('modal-sub').textContent = `${baseSub} | Trend: ${safeText(d?.trend?.classification, 'Stable')}${trendTags ? ` (${trendTags})` : ''} | Month %: ${monthText} | 3M %: ${threeText}`;
 
       document.getElementById('modal-stats').innerHTML = `
@@ -2088,7 +2121,7 @@
           <div class="val">${
             isRegionalCard
               ? (isOverviewServices ? formatInt(d.total || 0) : formatInt(d.membership))
-              : (isOverviewServices ? formatInt(d.needs_attention_count || 0) : isServicesTabCard ? safeText(d.group, '—') : formatInt(d.membership))
+              : (isOverviewServices ? formatInt(d.needs_attention_count || 0) : isServicesTabCard ? safeText(d.group, '-') : formatInt(d.membership))
           }</div>
           <div class="lbl">${
             isRegionalCard
@@ -2112,7 +2145,7 @@
           <div class="val">${
             isServicesTabCard
               ? formatSecondaryPct(monthMeta, lowConf)
-              : `${safeText(d?.trend?.classification, 'Stable')}${Array.isArray(d?.trend?.tags) && d.trend.tags.length ? ` • ${d.trend.tags.join(', ')}` : ''}`
+              : `${safeText(d?.trend?.classification, 'Stable')}${Array.isArray(d?.trend?.tags) && d.trend.tags.length ? ` &bull; ${d.trend.tags.join(', ')}` : ''}`
           }</div>
           <div class="lbl">${isServicesTabCard ? 'MoM' : 'Trend'}</div>
         </div>
@@ -2144,7 +2177,7 @@
         );
 
         if (hasAttention) {
-          const reasons = (d.needsAttentionReasons || []).join(' • ');
+          const reasons = (d.needsAttentionReasons || []).join(' &bull; ');
           const names = (d.needsAttentionNames || []).join(', ');
           const namesHtml = names ? `<br><span>Fellowship(s): ${names}</span>` : '';
           const missingWeeks = (d.missingReportWeeks || []).filter(Boolean);
@@ -2446,10 +2479,12 @@
         const grpItems = filtered.filter(d => d.group === grp);
         if (!grpItems.length) return;
 
-        const lbl = document.createElement('div');
-        lbl.className = 'group-label';
-        lbl.textContent = grp;
-        wrap.appendChild(lbl);
+        if (!IS_SUBGROUP_VIEW) {
+          const lbl = document.createElement('div');
+          lbl.className = 'group-label';
+          lbl.textContent = grp;
+          wrap.appendChild(lbl);
+        }
 
         const grid = document.createElement('div');
         grid.className = 'grid';
@@ -2499,9 +2534,25 @@
         throw new Error(data?.message || 'No data returned from backend.');
       }
 
-      rawPayload.overview = Array.isArray(data.overview) ? data.overview : [];
-      rawPayload.cells = Array.isArray(data.cells) ? data.cells : [];
-      rawPayload.services = Array.isArray(data.services) ? data.services : [];
+      const allOverview  = Array.isArray(data.overview)  ? data.overview  : [];
+      const allCells     = Array.isArray(data.cells)     ? data.cells     : [];
+      const allServices  = Array.isArray(data.services)  ? data.services  : [];
+
+      if (IS_SUBGROUP_VIEW) {
+        const sg = SUBGROUP_PARAM.toLowerCase();
+        const matchesSubgroup = r =>
+          safeText(r.group || r.region || r.subgroup || r.cluster || r.name || '')
+            .toLowerCase() === sg;
+
+        rawPayload.overview  = allOverview.filter(matchesSubgroup);
+        rawPayload.cells     = allCells.filter(matchesSubgroup);
+        rawPayload.services  = allServices.filter(matchesSubgroup);
+      } else {
+        rawPayload.overview  = allOverview;
+        rawPayload.cells     = allCells;
+        rawPayload.services  = allServices;
+      }
+
       rawPayload.lastUpdated = data.lastUpdated || data.last_updated || new Date().toISOString();
 
       if (!rawPayload.overview.length && !rawPayload.cells.length && !rawPayload.services.length) {
@@ -2575,28 +2626,24 @@
     }
 
     async function loadAnyTransport(url, timeoutMs) {
-      return new Promise((resolve, reject) => {
-        let settled = false;
-        let errors = [];
-        const maybeReject = () => {
-          if (!settled && errors.length >= 2) {
-            settled = true;
-            reject(errors[errors.length - 1] || new Error('All transport methods failed.'));
-          }
-        };
-        const onResolve = payload => {
-          if (settled) return;
-          settled = true;
-          resolve(payload);
-        };
-        const onReject = err => {
-          errors.push(err);
-          maybeReject();
-        };
+      const [jsonpResult, fetchResult] = await Promise.allSettled([
+        loadViaJsonp(url, timeoutMs),
+        fetchJsonWithTimeout(url, timeoutMs)
+      ]);
 
-        loadViaJsonp(url, timeoutMs).then(onResolve).catch(onReject);
-        fetchJsonWithTimeout(url, timeoutMs).then(onResolve).catch(onReject);
-      });
+      const payloads = [jsonpResult, fetchResult]
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value);
+
+      const nonErrorPayload = payloads.find(p => p && !p.error);
+      if (nonErrorPayload) return nonErrorPayload;
+      if (payloads.length) return payloads[0];
+
+      const lastError =
+        fetchResult.status === 'rejected' ? fetchResult.reason :
+        jsonpResult.status === 'rejected' ? jsonpResult.reason :
+        null;
+      throw lastError || new Error('All transport methods failed.');
     }
 
     async function loadWithRetries(url, options = {}) {
@@ -2625,12 +2672,20 @@
     }
 
     async function loadDashboard() {
-      // Replace with your deployed Google Apps Script web app URL
-      const API_URL = 'https://script.google.com/macros/s/AKfycbzizTU0Ubjrg7-Gmnk4bFWPlcFF7qxz01e_HEM5syoAxajZ-k3JtSvPzGfEf58kf_7i/exec';
-      const CACHE_KEY = 'blw-dashboard-last-good-payload-v1';
-      let hadCachedPayload = false;
+      const BASE_API_URL = 'https://script.google.com/macros/s/AKfycbzizTU0Ubjrg7-Gmnk4bFWPlcFF7qxz01e_HEM5syoAxajZ-k3JtSvPzGfEf58kf_7i/exec';
 
-      console.log('Loading dashboard data from:', API_URL);
+      const subgroup = SUBGROUP_PARAM;
+
+      const apiUrl = subgroup
+        ? `${BASE_API_URL}?subgroup=${encodeURIComponent(subgroup)}`
+        : BASE_API_URL;
+
+      // Cache per subgroup so data does not mix between links
+      const cacheScope = subgroup ? subgroup.toLowerCase() : 'all';
+      const CACHE_KEY = `blw-dashboard-last-good-payload-v2-copy-${cacheScope}`;
+
+      let hadCachedPayload = false;
+      console.log('Loading dashboard data from:', apiUrl);
 
       try {
         const cachedRaw = localStorage.getItem(CACHE_KEY);
@@ -2645,18 +2700,20 @@
       }
 
       try {
-        const payload = await loadWithRetries(API_URL, {
+        const payload = await loadWithRetries(apiUrl, {
           attempts: 4,
           baseTimeoutMs: 10000,
           timeoutStepMs: 5000,
           backoffMs: 900
         });
+
         localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
         applyPayload(payload);
       } catch (loadErr) {
         console.error('Dashboard load error:', loadErr);
+
         if (hadCachedPayload) {
-          // Keep cached data on screen and retry in the background.
+          // Keep cached data visible and retry in background
           setTimeout(() => {
             loadDashboard().catch(err => console.warn('Scheduled retry failed:', err));
           }, 45000);
@@ -2665,7 +2722,9 @@
 
         const message = loadErr?.message || 'Unknown error';
         document.getElementById('grid-wrap').innerHTML =
-          '<div class="empty-state error"><p>Failed to load dashboard data.</p><small>Please check your web app deployment and sharing permissions. Error: ' + message + '</small></div>';
+          '<div class="empty-state error"><p>Failed to load dashboard data.</p><small>Please check your web app deployment and sharing permissions. Error: ' +
+          message +
+          '</small></div>';
       }
     }
 
